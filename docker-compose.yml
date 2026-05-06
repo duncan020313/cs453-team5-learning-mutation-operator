@@ -1,0 +1,30 @@
+name: ${COMPOSE_PROJECT_NAME:-astramut}
+
+services:
+  dev:
+    image: ${IMAGE_NAME:-astramut}
+    container_name: ${CONTAINER_NAME}
+    build:
+      context: .
+      dockerfile: Dockerfile
+      args:
+        USERNAME: user
+        USER_UID: ${HOST_UID:-1000}
+        USER_GID: ${HOST_GID:-1000}
+        NODE_MAJOR: ${NODE_MAJOR:-20}
+        INSTALL_GUMTREE: ${INSTALL_GUMTREE:-true}
+    init: true
+    stdin_open: true
+    tty: true
+    privileged: true
+    user: "${HOST_UID:-1000}:${HOST_GID:-1000}"
+    working_dir: /workspace/cs453-team5-learning-mutation-operator
+    volumes:
+      - type: bind
+        source: .
+        target: /workspace/cs453-team5-learning-mutation-operator
+      - type: bind
+        source: ~/.ssh
+        target: /home/user/.ssh
+        read_only: true
+    command: /bin/bash
