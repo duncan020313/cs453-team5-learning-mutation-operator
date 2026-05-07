@@ -6,7 +6,7 @@ ARG USERNAME=user
 ARG USER_UID=1000
 ARG USER_GID=1000
 ARG NODE_MAJOR=20
-ARG GRADLE_VERSION=8.10.2
+ARG GRADLE_VERSION=9.4.1
 ARG INSTALL_GUMTREE=true
 ARG GUMTREE_VERSION=v4.0.0-beta6
 
@@ -17,7 +17,6 @@ ENV LANG=C.UTF-8 \
     TZ=America/Los_Angeles \
     JAVA17_HOME=/usr/lib/jvm/java-17-openjdk-amd64 \
     JAVA_HOME=/usr/lib/jvm/java-17-openjdk-amd64 \
-    MAVEN_OPTS="-Xmx4g" \
     GRADLE_OPTS="-Dorg.gradle.daemon=false -Xmx4g" \
     PIP_DISABLE_PIP_VERSION_CHECK=1 \
     PIP_NO_CACHE_DIR=1 \
@@ -65,7 +64,6 @@ RUN apt-get update && \
       libxml-simple-perl \
       locales \
       lsb-release \
-      maven \
       nano \
       netcat-openbsd \
       ninja-build \
