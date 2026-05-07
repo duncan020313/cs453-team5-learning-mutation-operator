@@ -18,13 +18,13 @@ services:
     tty: true
     privileged: true
     user: "${HOST_UID:-1000}:${HOST_GID:-1000}"
-    working_dir: /workspace/cs453-team5-learning-mutation-operator
+    working_dir: /workspace/${WORKSPACE_NAME}
     volumes:
       - type: bind
         source: .
-        target: /workspace/cs453-team5-learning-mutation-operator
+        target: /workspace/${WORKSPACE_NAME}
       - type: bind
-        source: ~/.ssh
+        source: ${HOST_SSH_DIR}
         target: /home/user/.ssh
         read_only: true
     command: /bin/bash

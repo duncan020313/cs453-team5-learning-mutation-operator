@@ -15,5 +15,5 @@ What `setup.sh` does:
 ## Build
 
 ```bash
-gradle clean build --no-configuration-cache
+gradle clean build
 ```
