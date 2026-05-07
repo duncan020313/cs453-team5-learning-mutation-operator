@@ -15,9 +15,8 @@ SHELL ["/bin/bash", "-o", "pipefail", "-c"]
 ENV LANG=C.UTF-8 \
     LC_ALL=C.UTF-8 \
     TZ=America/Los_Angeles \
-    JAVA11_HOME=/usr/lib/jvm/java-11-openjdk-amd64 \
     JAVA17_HOME=/usr/lib/jvm/java-17-openjdk-amd64 \
-    JAVA_HOME=/usr/lib/jvm/java-11-openjdk-amd64 \
+    JAVA_HOME=/usr/lib/jvm/java-17-openjdk-amd64 \
     MAVEN_OPTS="-Xmx4g" \
     GRADLE_OPTS="-Dorg.gradle.daemon=false -Xmx4g" \
     PIP_DISABLE_PIP_VERSION_CHECK=1 \
@@ -70,7 +69,6 @@ RUN apt-get update && \
       nano \
       netcat-openbsd \
       ninja-build \
-      openjdk-11-jdk \
       openjdk-17-jdk \
       openssh-client \
       parallel \
@@ -174,37 +172,29 @@ RUN python3 -m pip install --upgrade pip setuptools wheel && \
       uv \
       z3-solver
 
-RUN update-alternatives --set java  ${JAVA11_HOME}/bin/java && \
-    update-alternatives --set javac ${JAVA11_HOME}/bin/javac && \
-    printf '%s\n' \
-      '#!/usr/bin/env bash' \
-      'export JAVA_HOME=/usr/lib/jvm/java-11-openjdk-amd64' \
-      'export PATH="$JAVA_HOME/bin:$PATH"' \
-      'exec "$@"' \
-      > /usr/local/bin/with-java11 && \
+RUN update-alternatives --set java  ${JAVA17_HOME}/bin/java && \
+    update-alternatives --set javac ${JAVA17_HOME}/bin/javac && \
     printf '%s\n' \
       '#!/usr/bin/env bash' \
       'export JAVA_HOME=/usr/lib/jvm/java-17-openjdk-amd64' \
       'export PATH="$JAVA_HOME/bin:$PATH"' \
       'exec "$@"' \
       > /usr/local/bin/with-java17 && \
-    chmod +x /usr/local/bin/with-java11 /usr/local/bin/with-java17
+    chmod +x /usr/local/bin/with-java17
 
-# GumTree: Java 17 is required by current GumTree, so build/run it through a Java-17 wrapper.
+# GumTree uses the container default Java runtime.
 RUN if [[ "${INSTALL_GUMTREE}" == "true" ]]; then \
       git clone --depth 1 --branch "${GUMTREE_VERSION}" https://github.com/GumTreeDiff/gumtree.git /opt/gumtree-src || \
       git clone --depth 1 https://github.com/GumTreeDiff/gumtree.git /opt/gumtree-src; \
       cd /opt/gumtree-src; \
       git submodule update --init --recursive; \
-      JAVA_HOME=${JAVA17_HOME} PATH=${JAVA17_HOME}/bin:${PATH} ./gradlew --no-daemon build -x test; \
+      ./gradlew --no-daemon build -x test; \
       mkdir -p /opt/gumtree; \
       unzip -q dist/build/distributions/gumtree-*.zip -d /opt/gumtree; \
       GUMTREE_DIR="$(find /opt/gumtree -maxdepth 1 -mindepth 1 -type d | head -n 1)"; \
       ln -sfn "${GUMTREE_DIR}" /opt/gumtree/current; \
       printf '%s\n' \
         '#!/usr/bin/env bash' \
-        'export JAVA_HOME=/usr/lib/jvm/java-17-openjdk-amd64' \
-        'export PATH="$JAVA_HOME/bin:$PATH"' \
         'exec /opt/gumtree/current/bin/gumtree "$@"' \
         > /usr/local/bin/gumtree; \
       chmod +x /usr/local/bin/gumtree; \
