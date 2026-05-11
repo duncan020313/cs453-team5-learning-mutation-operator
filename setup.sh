@@ -14,10 +14,11 @@ export HOST_GID="$(id -g)"
 export HOST_PROJECT_DIR="$PWD"
 export WORKSPACE_NAME="$(basename "$PWD")"
 export HOST_SSH_DIR="${HOME}/.ssh"
+export PROJECT_NAME="astramut-${HOSTNAME}"
 export CONTAINER_NAME="astramut-${HOSTNAME}"
 
 # Executables
-COMPOSE=(docker compose)
+COMPOSE=(docker compose -p "${PROJECT_NAME}")
 
 mkdir -p "$HOST_SSH_DIR"
 chmod 700 "$HOST_SSH_DIR" || true
