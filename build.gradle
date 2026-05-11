@@ -12,8 +12,14 @@ java {
 }
 
 dependencies {
+    implementation 'com.fasterxml.jackson.core:jackson-databind:2.17.2'
+    implementation 'com.github.gumtreediff:core:4.0.0-beta2' 
+    implementation 'com.github.gumtreediff:client:4.0.0-beta2' 
+    implementation 'com.github.gumtreediff:gen.jdt:4.0.0-beta2'
+
     testImplementation platform('org.junit:junit-bom:6.0.3')
     testImplementation 'org.junit.jupiter:junit-jupiter'
+    testRuntimeOnly 'org.junit.platform:junit-platform-launcher'
 }
 
 application {
