@@ -10,8 +10,8 @@ class AntiUnifierTest {
 
     @Test
     void identicalLeavesProduceNoHole() {
-        TreePattern a = TreeNode.leaf("Id", "x");
-        TreePattern b = TreeNode.leaf("Id", "x");
+        TreePattern a = TreeNode.leaf("Identifier", "x");
+        TreePattern b = TreeNode.leaf("Identifier", "x");
         TreePattern result = AntiUnifier.au(a, b, new AntiUnifier.HoleAllocator());
         assertEquals(0, result.holeCount());
         assertEquals(a, result);
@@ -19,8 +19,8 @@ class AntiUnifierTest {
 
     @Test
     void differingLeavesProduceHole() {
-        TreePattern a = TreeNode.leaf("Id", "x");
-        TreePattern b = TreeNode.leaf("Id", "y");
+        TreePattern a = TreeNode.leaf("Identifier", "x");
+        TreePattern b = TreeNode.leaf("Identifier", "y");
         TreePattern result = AntiUnifier.au(a, b, new AntiUnifier.HoleAllocator());
         assertInstanceOf(Hole.class, result);
     }
@@ -39,8 +39,8 @@ class AntiUnifierTest {
         EditPattern e2 = flipNullCheck("y");
         EditPattern au = AntiUnifier.antiUnify(e1, e2);
 
-        TreePattern beforeLeft = ((TreeNode) au.before()).children().get(0).child();
-        TreePattern afterLeft = ((TreeNode) au.after()).children().get(0).child();
+        TreePattern beforeLeft = ((TreeNode) au.before()).children().get(0);
+        TreePattern afterLeft = ((TreeNode) au.after()).children().get(0);
         assertInstanceOf(Hole.class, beforeLeft);
         assertInstanceOf(Hole.class, afterLeft);
         assertEquals(((Hole) beforeLeft).id(), ((Hole) afterLeft).id(),
@@ -48,12 +48,12 @@ class AntiUnifierTest {
     }
 
     private static EditPattern flipNullCheck(String var) {
-        TreePattern before = new TreeNode("BinaryExpr", "==", List.of(
-                new TreeNode.ChildSlot("left", TreeNode.leaf("Id", var)),
-                new TreeNode.ChildSlot("right", TreeNode.leaf("Literal", "null"))));
-        TreePattern after = new TreeNode("BinaryExpr", "!=", List.of(
-                new TreeNode.ChildSlot("left", TreeNode.leaf("Id", var)),
-                new TreeNode.ChildSlot("right", TreeNode.leaf("Literal", "null"))));
+        TreePattern before = new TreeNode("InfixExpression", "==", List.of(
+                TreeNode.leaf("Identifier", var),
+                TreeNode.leaf("Literal", "null")));
+        TreePattern after = new TreeNode("InfixExpression", "!=", List.of(
+                TreeNode.leaf("Identifier", var),
+                TreeNode.leaf("Literal", "null")));
         return new EditPattern(before, after);
     }
 }
