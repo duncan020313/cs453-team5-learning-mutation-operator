@@ -19,15 +19,13 @@ public final class PatternFormatter {
             return;
         }
         TreeNode n = (TreeNode) p;
-        sb.append(n.label());
-        if (!n.value().isEmpty()) sb.append("(").append(n.value()).append(")");
+        sb.append(n.type());
+        if (!n.label().isEmpty()) sb.append("(").append(n.label()).append(")");
         if (n.children().isEmpty()) return;
         sb.append("[");
         for (int i = 0; i < n.children().size(); i++) {
             if (i > 0) sb.append(", ");
-            TreeNode.ChildSlot s = n.children().get(i);
-            sb.append(s.location()).append("=");
-            append(s.child(), sb);
+            append(n.children().get(i), sb);
         }
         sb.append("]");
     }

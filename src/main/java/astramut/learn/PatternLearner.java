@@ -21,10 +21,10 @@ public class PatternLearner {
         this.maxHoles = maxHoles;
     }
 
-    public LearnedModel learn(Iterable<AstDiff> diffs) {
+    public LearnedModel learn(Iterable<GumTreeDiff> diffs) {
         ConcreteEditExtractor extractor = new ConcreteEditExtractor();
         List<EditPattern> concretes = new ArrayList<>();
-        for (AstDiff d : diffs) concretes.addAll(extractor.extract(d));
+        for (GumTreeDiff d : diffs) concretes.addAll(extractor.extract(d));
 
         List<HierarchicalClusterer.Cluster> clusters =
                 new HierarchicalClusterer(maxHoles).cluster(concretes);

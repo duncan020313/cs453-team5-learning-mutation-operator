@@ -23,26 +23,16 @@ public final class AntiUnifier {
     public static TreePattern au(TreePattern t1, TreePattern t2, HoleAllocator alloc) {
         if (t1.equals(t2)) return t1;
         if (t1 instanceof TreeNode n1 && t2 instanceof TreeNode n2
+                && n1.type().equals(n2.type())
                 && n1.label().equals(n2.label())
-                && n1.value().equals(n2.value())
-                && sameChildLocations(n1, n2)) {
-            List<TreeNode.ChildSlot> kids = new ArrayList<>(n1.children().size());
+                && n1.children().size() == n2.children().size()) {
+            List<TreePattern> kids = new ArrayList<>(n1.children().size());
             for (int i = 0; i < n1.children().size(); i++) {
-                TreeNode.ChildSlot c1 = n1.children().get(i);
-                TreeNode.ChildSlot c2 = n2.children().get(i);
-                kids.add(new TreeNode.ChildSlot(c1.location(), au(c1.child(), c2.child(), alloc)));
+                kids.add(au(n1.children().get(i), n2.children().get(i), alloc));
             }
-            return new TreeNode(n1.label(), n1.value(), kids);
+            return new TreeNode(n1.type(), n1.label(), kids);
         }
         return alloc.holeFor(t1, t2);
-    }
-
-    private static boolean sameChildLocations(TreeNode a, TreeNode b) {
-        if (a.children().size() != b.children().size()) return false;
-        for (int i = 0; i < a.children().size(); i++) {
-            if (!a.children().get(i).location().equals(b.children().get(i).location())) return false;
-        }
-        return true;
     }
 
     public static final class HoleAllocator {
