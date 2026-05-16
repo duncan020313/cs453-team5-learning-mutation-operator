@@ -1,6 +1,7 @@
 plugins {
     id 'application'
     id 'com.diffplug.spotless' version '8.4.0'
+    id 'info.solidsoft.pitest' version '1.19.0'
 }
 
 group = 'astramut'
@@ -20,6 +21,13 @@ dependencies {
 
 application {
     mainClass = 'astramut.Main'
+}
+
+pitest {
+    pitestVersion = '1.22.1'
+    junit5PluginVersion = '1.2.3'
+    outputFormats = ['XML', 'HTML']
+    timestampedReports = false
 }
 
 spotless {
