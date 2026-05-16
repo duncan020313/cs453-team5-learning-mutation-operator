@@ -26,5 +26,4 @@ services:
       - type: bind
         source: ${HOST_SSH_DIR}
         target: /home/user/.ssh
-        read_only: true
     command: /bin/bash
