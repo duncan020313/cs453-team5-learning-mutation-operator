@@ -1,0 +1,135 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+cd "$SCRIPT_DIR"
+
+ORIGINAL_PATH="$PATH"
+TOOLS_DIR="${TOOLS_DIR:-$SCRIPT_DIR/tools}"
+DEFECTS4J_HOME="${DEFECTS4J_HOME:-$TOOLS_DIR/defects4j}"
+JAVA11_HOME="${JAVA11_HOME:-$TOOLS_DIR/jdk-11}"
+PERL5_HOME="${PERL5_HOME:-$TOOLS_DIR/perl5}"
+DOWNLOAD_DIR="${DOWNLOAD_DIR:-$TOOLS_DIR/downloads}"
+CPANM_OPTIONS="${CPANM_OPTIONS:---notest}"
+
+DEFECTS4J_REPO="${DEFECTS4J_REPO:-https://github.com/rjust/defects4j.git}"
+DEFECTS4J_REF="${DEFECTS4J_REF:-master}"
+TEMURIN11_URL="${TEMURIN11_URL:-https://api.adoptium.net/v3/binary/latest/11/ga/linux/x64/jdk/hotspot/normal/eclipse?project=jdk}"
+TEMURIN11_FALLBACK_URL="${TEMURIN11_FALLBACK_URL:-https://github.com/adoptium/temurin11-binaries/releases/download/jdk-11.0.31%2B11/OpenJDK11U-jdk_x64_linux_hotspot_11.0.31_11.tar.gz}"
+
+require_cmd() {
+  local cmd="$1"
+  if ! command -v "$cmd" >/dev/null 2>&1; then
+    echo "[error] Required command not found: $cmd" >&2
+    exit 1
+  fi
+}
+
+require_cmd bash
+require_cmd curl
+require_cmd git
+require_cmd perl
+require_cmd tar
+
+download_file() {
+  local output="$1"
+  shift
+
+  local url
+  rm -f "$output"
+  for url in "$@"; do
+    echo "      downloading: $url"
+    if curl --fail --location --show-error --retry 3 --retry-delay 3 \
+      --connect-timeout 30 --max-time 600 \
+      "$url" \
+      --output "$output"; then
+      return 0
+    fi
+    rm -f "$output"
+  done
+
+  echo "[error] Failed to download: $output" >&2
+  return 1
+}
+
+mkdir -p "$TOOLS_DIR" "$DOWNLOAD_DIR"
+
+SYSTEM_JAVA_BEFORE="$(command -v java || true)"
+SYSTEM_JAVA_VERSION_BEFORE="$(java -version 2>&1 | head -n 1 || true)"
+
+echo "[1/5] Installing project-local Java 11: $JAVA11_HOME"
+if [[ -x "$JAVA11_HOME/bin/java" ]]; then
+  "$JAVA11_HOME/bin/java" -version 2>&1 | head -n 1
+else
+  rm -rf "$JAVA11_HOME"
+  tmp_jdk="$TOOLS_DIR/jdk-11.extracting"
+  rm -rf "$tmp_jdk"
+  mkdir -p "$tmp_jdk"
+
+  jdk_archive="$DOWNLOAD_DIR/temurin-jdk11-linux-x64.tar.gz"
+  download_file "$jdk_archive" "$TEMURIN11_URL" "$TEMURIN11_FALLBACK_URL"
+
+  tar -xzf "$jdk_archive" -C "$tmp_jdk" --strip-components=1
+  mv "$tmp_jdk" "$JAVA11_HOME"
+  "$JAVA11_HOME/bin/java" -version 2>&1 | head -n 1
+fi
+
+echo "[2/5] Installing Defects4J source: $DEFECTS4J_HOME"
+if [[ -d "$DEFECTS4J_HOME/.git" ]]; then
+  git -C "$DEFECTS4J_HOME" fetch --tags origin
+  git -C "$DEFECTS4J_HOME" checkout "$DEFECTS4J_REF"
+  git -C "$DEFECTS4J_HOME" pull --ff-only origin "$DEFECTS4J_REF" || true
+else
+  git clone "$DEFECTS4J_REPO" "$DEFECTS4J_HOME"
+  git -C "$DEFECTS4J_HOME" checkout "$DEFECTS4J_REF"
+fi
+
+echo "[3/5] Installing Perl dependencies into project-local perl5"
+if command -v cpanm >/dev/null 2>&1; then
+  read -r -a CPANM_OPTIONS_ARRAY <<< "$CPANM_OPTIONS"
+  cpanm "${CPANM_OPTIONS_ARRAY[@]}" --local-lib-contained "$PERL5_HOME" --installdeps "$DEFECTS4J_HOME"
+else
+  echo "[warn] cpanm is not installed; skipping automatic Perl dependency install." >&2
+  echo "[warn] If Defects4J fails, install cpanminus and rerun this script." >&2
+fi
+
+export JAVA_HOME="$JAVA11_HOME"
+export PATH="$JAVA11_HOME/bin:$PERL5_HOME/bin:$DEFECTS4J_HOME/framework/bin:$PATH"
+export PERL5LIB="$PERL5_HOME/lib/perl5${PERL5LIB:+:$PERL5LIB}"
+export PERL_LOCAL_LIB_ROOT="$PERL5_HOME${PERL_LOCAL_LIB_ROOT:+:$PERL_LOCAL_LIB_ROOT}"
+export PERL_MB_OPT="--install_base \"$PERL5_HOME\""
+export PERL_MM_OPT="INSTALL_BASE=$PERL5_HOME"
+
+echo "[4/5] Initializing Defects4J"
+"$DEFECTS4J_HOME/init.sh"
+
+cat > "$TOOLS_DIR/defects4j-env.sh" <<EOF
+# Source this file to use Defects4J with project-local Java 11.
+# It intentionally does not modify system Java alternatives.
+export DEFECTS4J_HOME="$DEFECTS4J_HOME"
+export JAVA11_HOME="$JAVA11_HOME"
+export JAVA_HOME="\$JAVA11_HOME"
+export PERL5_HOME="$PERL5_HOME"
+export PERL5LIB="\$PERL5_HOME/lib/perl5\${PERL5LIB:+:\$PERL5LIB}"
+export PERL_LOCAL_LIB_ROOT="\$PERL5_HOME\${PERL_LOCAL_LIB_ROOT:+:\$PERL_LOCAL_LIB_ROOT}"
+export PERL_MB_OPT="--install_base \$PERL5_HOME"
+export PERL_MM_OPT="INSTALL_BASE=\$PERL5_HOME"
+export PATH="\$JAVA11_HOME/bin:\$PERL5_HOME/bin:\$DEFECTS4J_HOME/framework/bin:\$PATH"
+EOF
+
+echo "[5/5] Verifying installation"
+"$JAVA11_HOME/bin/java" -version 2>&1 | head -n 1
+"$DEFECTS4J_HOME/framework/bin/defects4j" info -p Lang >/dev/null
+
+SYSTEM_JAVA_AFTER="$(env PATH="$ORIGINAL_PATH" bash -c 'command -v java' || true)"
+SYSTEM_JAVA_VERSION_AFTER="$(env PATH="$ORIGINAL_PATH" java -version 2>&1 | head -n 1 || true)"
+
+echo "[ok] Defects4J: $DEFECTS4J_HOME"
+echo "[ok] Java 11:   $JAVA11_HOME"
+echo "[ok] Env file:  $TOOLS_DIR/defects4j-env.sh"
+echo "[ok] System java before: ${SYSTEM_JAVA_BEFORE} (${SYSTEM_JAVA_VERSION_BEFORE})"
+echo "[ok] System java after:  ${SYSTEM_JAVA_AFTER} (${SYSTEM_JAVA_VERSION_AFTER})"
+echo
+echo "Use Defects4J with:"
+echo "  source tools/defects4j-env.sh"
+echo "  defects4j info -p Lang"
