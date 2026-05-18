@@ -7,17 +7,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.Set;
 
-/**
- * Extracts (b_subtree, a_subtree) pairs from a {@link GumTreeDiff} at every
- * granularity at which the change is visible — the multi-granularity
- * "extract too many rather than too few" step from Getafix §3.3.
- *
- * <p>Driven by the GumTree edit script: each action marks one or two nodes
- * as <em>directly touched</em>, the touched flag is propagated up the src
- * tree, and a concrete edit is emitted at every mapped src ancestor whose
- * subtree differs from its dst counterpart. The clustering step downstream
- * decides which granularity carries a generalizable pattern.
- */
+/** Action-driven multi-granularity edit extraction — Getafix §3.3 "extract too many rather than too few". */
 public final class ConcreteEditExtractor {
 
     public List<EditPattern> extract(GumTreeDiff diff) {
@@ -40,7 +30,7 @@ public final class ConcreteEditExtractor {
         }
 
         List<EditPattern> out = new ArrayList<>();
-        walk(diff.srcTree(), touched, srcToDst, dstIndex, out);
+        walk(diff.srcTree(), touched, srcToDst, dstToSrc, dstIndex, out);
         return out;
     }
 
@@ -94,18 +84,57 @@ public final class ConcreteEditExtractor {
 
     private static boolean walk(GumTreeNode src, Set<String> touched,
                                 Map<String, String> srcToDst,
+                                Map<String, String> dstToSrc,
                                 Map<String, GumTreeNode> dstIndex,
                                 List<EditPattern> out) {
         boolean modified = touched.contains(src.identifier());
         for (GumTreeNode child : src.children()) {
-            if (walk(child, touched, srcToDst, dstIndex, out)) modified = true;
+            if (walk(child, touched, srcToDst, dstToSrc, dstIndex, out)) modified = true;
         }
         if (!modified) return false;
         String dstId = srcToDst.get(src.identifier());
         if (dstId == null) return true;
         GumTreeNode dst = dstIndex.get(dstId);
         if (dst == null || structurallyEqual(src, dst)) return true;
-        out.add(new EditPattern(toPattern(src), toPattern(dst)));
+        Set<TreePattern> unmodSrc = EditPattern.identitySet();
+        Set<TreePattern> unmodDst = EditPattern.identitySet();
+        TreePattern srcPattern = toPatternMarkingUnmod(src, touched, true, srcToDst, unmodSrc);
+        TreePattern dstPattern = toPatternMarkingUnmod(dst, touched, false, dstToSrc, unmodDst);
+        out.add(new EditPattern(srcPattern, dstPattern, unmodSrc, unmodDst));
+        return true;
+    }
+
+    /** Builds the pattern and marks a node as an unmod root when no descendant is touched and a counterpart exists. */
+    private static TreePattern toPatternMarkingUnmod(GumTreeNode node,
+                                                     Set<String> touched,
+                                                     boolean isSrcSide,
+                                                     Map<String, String> mapping,
+                                                     Set<TreePattern> unmodOut) {
+        if (isFullyUnmod(node, touched, isSrcSide, mapping)) {
+            TreePattern p = toPatternPlain(node);
+            unmodOut.add(p);
+            return p;
+        }
+        List<TreePattern> kids = new ArrayList<>(node.children().size());
+        for (GumTreeNode c : node.children()) {
+            kids.add(toPatternMarkingUnmod(c, touched, isSrcSide, mapping, unmodOut));
+        }
+        return new TreeNode(node.type(), node.label(), kids);
+    }
+
+    private static boolean isFullyUnmod(GumTreeNode node, Set<String> touched,
+                                        boolean isSrcSide, Map<String, String> mapping) {
+        if (isSrcSide) {
+            if (!mapping.containsKey(node.identifier())) return false;
+            if (touched.contains(node.identifier())) return false;
+        } else {
+            String srcId = mapping.get(node.identifier());
+            if (srcId == null) return false;
+            if (touched.contains(srcId)) return false;
+        }
+        for (GumTreeNode c : node.children()) {
+            if (!isFullyUnmod(c, touched, isSrcSide, mapping)) return false;
+        }
         return true;
     }
 
@@ -120,8 +149,12 @@ public final class ConcreteEditExtractor {
     }
 
     public static TreePattern toPattern(GumTreeNode node) {
+        return toPatternPlain(node);
+    }
+
+    private static TreePattern toPatternPlain(GumTreeNode node) {
         List<TreePattern> kids = new ArrayList<>(node.children().size());
-        for (GumTreeNode c : node.children()) kids.add(toPattern(c));
+        for (GumTreeNode c : node.children()) kids.add(toPatternPlain(c));
         return new TreeNode(node.type(), node.label(), kids);
     }
 }
