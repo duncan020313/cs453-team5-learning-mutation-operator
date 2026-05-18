@@ -23,6 +23,8 @@ public final class HierarchicalClusterer {
         while (clusters.size() > 1) {
             int bestI = -1, bestJ = -1;
             EditPattern bestAU = null;
+            // Getafix §4.2.3 tiebreaker: fewer unbound-RHS holes wins over fewer total holes.
+            int bestUnbound = Integer.MAX_VALUE;
             int bestHoles = Integer.MAX_VALUE;
 
             for (int i = 0; i < clusters.size(); i++) {
@@ -30,14 +32,15 @@ public final class HierarchicalClusterer {
                     EditPattern au = AntiUnifier.antiUnify(
                             clusters.get(i).representative(),
                             clusters.get(j).representative());
-                    // Skip degenerate AUs (root is a hole on either side) —
-                    // they share no structural skeleton and can't be applied
-                    // as rewrite rules. We must skip rather than tie-break,
-                    // otherwise a degenerate candidate at the same hole count
-                    // as a valid one can occlude the valid merge.
+                    // Skip degenerate AUs (root is a hole) — they can't be rewrite rules
+                    // and would occlude valid merges at the same hole count.
                     if (au.before() instanceof Hole || au.after() instanceof Hole) continue;
+                    int unbound = au.unboundAfterHoleCount();
                     int holes = au.holeCount();
-                    if (holes < bestHoles) {
+                    boolean better = unbound < bestUnbound
+                            || (unbound == bestUnbound && holes < bestHoles);
+                    if (better) {
+                        bestUnbound = unbound;
                         bestHoles = holes;
                         bestI = i;
                         bestJ = j;
@@ -53,7 +56,6 @@ public final class HierarchicalClusterer {
             List<EditPattern> merged = new ArrayList<>(ci.members().size() + cj.members().size());
             merged.addAll(ci.members());
             merged.addAll(cj.members());
-            // remove higher index first so the lower index stays valid
             clusters.remove(bestJ);
             clusters.remove(bestI);
             clusters.add(new Cluster(bestAU, merged));
