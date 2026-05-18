@@ -2,12 +2,6 @@ package astramut.learn;
 
 import java.util.List;
 
-/**
- * Concrete (non-hole) tree pattern node. Mirrors a {@link GumTreeNode}'s
- * (type, label, children) — positions are dropped because patterns are
- * abstract templates with no source location. Children are an ordered list,
- * matching GumTree's child ordering (no slot/location string).
- */
 public record TreeNode(String type, String label, List<TreePattern> children) implements TreePattern {
 
     public TreeNode {
