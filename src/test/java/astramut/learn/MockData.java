@@ -3,16 +3,7 @@ package astramut.learn;
 import java.util.ArrayList;
 import java.util.List;
 
-/**
- * Hand-crafted {@link GumTreeDiff} fixtures shaped exactly like what
- * {@code gumtree textdiff -f JSON} would emit — paired src/dst trees, the
- * matches list, and the edit script.
- *
- * <p>Positions are synthetic and only need to be unique within a single
- * tree; they exist solely to give each node a distinct
- * {@link GumTreeNode#identifier()} string for the matches/actions to
- * reference.
- */
+/** Hand-crafted {@link GumTreeDiff} fixtures shaped like {@code gumtree textdiff -f JSON} output. */
 final class MockData {
     private MockData() {}
 
@@ -35,14 +26,13 @@ final class MockData {
         matches.add(new GumTreeMatch(srcNull.identifier(), dstNull.identifier()));
         matches.addAll(body.matches());
 
-        // The only edit GumTree would emit here is the operator update.
         List<GumTreeAction> actions = List.of(
                 new GumTreeAction.UpdateNode(srcBin.identifier(), flippedOp));
 
         return new GumTreeDiff(srcIf, dstIf, matches, actions);
     }
 
-    /** int <var> = <other> <op> 1;  →  int <var> = <other> <op> 0;  (LITERAL_TO_ZERO) */
+    /** int <var> = <other> <op> 1;  →  int <var> = <other> <op> 0; */
     static GumTreeDiff literalToZero(String varName, String otherName, String op) {
         GumTreeNode srcOther = GumTreeNode.leaf("Identifier", otherName, 1, 1);
         GumTreeNode srcLit = GumTreeNode.leaf("Literal", "1", 2, 1);
@@ -69,15 +59,32 @@ final class MockData {
         return new GumTreeDiff(srcDecl, dstDecl, matches, actions);
     }
 
-    /**
-     * Body fixture for {@link #nullCheckFlip} — the unchanged subtree that
-     * sits in the {@code then}-branch. Built once per diff so src and dst
-     * positions are distinct and a one-to-one match can be recorded.
-     */
     static BodyPair leafBody(String type, int srcPos, int dstPos) {
         GumTreeNode src = GumTreeNode.leaf(type, "", srcPos, 1);
         GumTreeNode dst = GumTreeNode.leaf(type, "", dstPos, 1);
         return new BodyPair(src, dst, List.of(new GumTreeMatch(src.identifier(), dst.identifier())));
+    }
+
+    /** assert(name1, name2) — same shape across diffs, differing leaves. */
+    static BodyPair richBody(String name1, String name2, int srcBase, int dstBase) {
+        GumTreeNode srcName = GumTreeNode.leaf("Identifier", "assert", srcBase, 1);
+        GumTreeNode srcArg1 = GumTreeNode.leaf("Identifier", name1, srcBase + 1, 1);
+        GumTreeNode srcArg2 = GumTreeNode.leaf("Identifier", name2, srcBase + 2, 1);
+        GumTreeNode src = new GumTreeNode("MethodCall", "", srcBase + 3, 1,
+                List.of(srcName, srcArg1, srcArg2));
+
+        GumTreeNode dstName = GumTreeNode.leaf("Identifier", "assert", dstBase, 1);
+        GumTreeNode dstArg1 = GumTreeNode.leaf("Identifier", name1, dstBase + 1, 1);
+        GumTreeNode dstArg2 = GumTreeNode.leaf("Identifier", name2, dstBase + 2, 1);
+        GumTreeNode dst = new GumTreeNode("MethodCall", "", dstBase + 3, 1,
+                List.of(dstName, dstArg1, dstArg2));
+
+        List<GumTreeMatch> matches = List.of(
+                new GumTreeMatch(src.identifier(), dst.identifier()),
+                new GumTreeMatch(srcName.identifier(), dstName.identifier()),
+                new GumTreeMatch(srcArg1.identifier(), dstArg1.identifier()),
+                new GumTreeMatch(srcArg2.identifier(), dstArg2.identifier()));
+        return new BodyPair(src, dst, matches);
     }
 
     record BodyPair(GumTreeNode src, GumTreeNode dst, List<GumTreeMatch> matches) {}

@@ -7,6 +7,7 @@ import java.util.List;
 import static astramut.learn.MockData.leafBody;
 import static astramut.learn.MockData.literalToZero;
 import static astramut.learn.MockData.nullCheckFlip;
+import static astramut.learn.MockData.richBody;
 import static org.junit.jupiter.api.Assertions.*;
 
 class PatternLearnerTest {
@@ -61,6 +62,56 @@ class PatternLearnerTest {
                 .count();
         assertTrue(flipFamily > 0, "should learn the null-check flip family");
         assertTrue(literalFamily > 0, "should learn the literal-to-zero family");
+    }
+
+    @Test
+    void stripUnmodCollapsesRichUnmodBodyIntoSingleHole() {
+        // Same MethodCall shape across diffs with differing leaves — without
+        // stripUnmod the leaves explode into holes past maxHoles=4 and the
+        // IfStatement-level cluster never merges.
+        List<GumTreeDiff> diffs = List.of(
+                nullCheckFlip("x", "==", "!=", richBody("a", "b", 50, 150)),
+                nullCheckFlip("y", "==", "!=", richBody("c", "d", 50, 150))
+        );
+
+        LearnedModel model = new PatternLearner().learn(diffs);
+        printModel("rich-body null-check flip", model);
+
+        LearnedPattern ifLevel = model.patterns().stream()
+                .filter(p -> p.pattern().before() instanceof TreeNode n
+                        && "IfStatement".equals(n.type()))
+                .findFirst()
+                .orElse(null);
+        assertNotNull(ifLevel,
+                "stripUnmod should let the IfStatement-level cluster fit under maxHoles");
+        assertEquals(2, ifLevel.support());
+        assertTrue(ifLevel.pattern().holeCount() <= 4,
+                "stripUnmod should keep the IfStatement-level hole count ≤ 4, got "
+                        + ifLevel.pattern().holeCount());
+    }
+
+    @Test
+    void mutationUnsafePatternsAreDropped() {
+        // literalToZero with mismatched operators (+ vs -) produces a
+        // VariableDeclaration-level cluster with LHS-only and RHS-only holes
+        // — mutation-broken in both directions, must be filtered.
+        List<GumTreeDiff> diffs = List.of(
+                literalToZero("a", "b", "+"),
+                literalToZero("c", "d", "-")
+        );
+        LearnedModel model = new PatternLearner().learn(diffs);
+        printModel("mutation-safety filter", model);
+
+        for (LearnedPattern p : model.patterns()) {
+            assertTrue(p.pattern().isMutationSafe(),
+                    "every retained pattern must be mutation-safe, got: "
+                            + PatternFormatter.format(p.pattern()));
+        }
+        boolean varDeclSurvived = model.patterns().stream().anyMatch(p ->
+                p.pattern().before() instanceof TreeNode n
+                        && "VariableDeclaration".equals(n.type()));
+        assertFalse(varDeclSurvived,
+                "VariableDeclaration-level pattern is mutation-broken and should be dropped");
     }
 
     @Test
