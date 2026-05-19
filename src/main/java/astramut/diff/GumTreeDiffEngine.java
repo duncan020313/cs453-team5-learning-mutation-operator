@@ -49,12 +49,51 @@ public class GumTreeDiffEngine {
         EditScriptGenerator scriptGen = new SimplifiedChawatheScriptGenerator();
         List<Action> actions = scriptGen.computeActions(mappings).asList();
 
-        GumTreeNode srcTree = toGumTreeNode(beforeRoot);
-        GumTreeNode dstTree = toGumTreeNode(afterRoot);
+        GumTreeNode srcTree = stripWrap(toGumTreeNode(beforeRoot));
+        GumTreeNode dstTree = stripWrap(toGumTreeNode(afterRoot));
         List<GumTreeMatch> matches = toMatches(mappings);
         List<GumTreeAction> ourActions = toActions(actions);
 
         return new GumTreeDiff(srcTree, dstTree, matches, ourActions);
+    }
+
+    /** Strip {@code class _Wrapper_ { void _m_() { ... } }} (and the {@code Object _v_ = (...)} fallback) so learning sees only real code. */
+    private static GumTreeNode stripWrap(GumTreeNode root) {
+        if (!"CompilationUnit".equals(root.type()) || root.children().size() != 1) return root;
+        GumTreeNode td = root.children().get(0);
+        if (!"TypeDeclaration".equals(td.type())
+                || td.children().stream().noneMatch(
+                        c -> "SimpleName".equals(c.type()) && "_Wrapper_".equals(c.label()))) {
+            return root;
+        }
+        GumTreeNode md = td.children().stream()
+                .filter(c -> "MethodDeclaration".equals(c.type())
+                        && c.children().stream().anyMatch(
+                                g -> "SimpleName".equals(g.type()) && "_m_".equals(g.label())))
+                .findFirst().orElse(null);
+        if (md == null) return root;
+        GumTreeNode block = md.children().stream()
+                .filter(c -> "Block".equals(c.type())).findFirst().orElse(null);
+        if (block == null || block.children().size() != 1) return root;
+        GumTreeNode body = block.children().get(0);
+
+        // Expression-wrap fallback: Object _v_ = (REAL);
+        if ("VariableDeclarationStatement".equals(body.type()) && body.children().size() == 2) {
+            GumTreeNode type = body.children().get(0);
+            GumTreeNode frag = body.children().get(1);
+            if ("SimpleType".equals(type.type()) && type.children().size() == 1
+                    && "SimpleName".equals(type.children().get(0).type())
+                    && "Object".equals(type.children().get(0).label())
+                    && "VariableDeclarationFragment".equals(frag.type())
+                    && frag.children().size() == 2
+                    && "SimpleName".equals(frag.children().get(0).type())
+                    && "_v_".equals(frag.children().get(0).label())
+                    && "ParenthesizedExpression".equals(frag.children().get(1).type())
+                    && frag.children().get(1).children().size() == 1) {
+                return frag.children().get(1).children().get(0);
+            }
+        }
+        return body;
     }
 
     // conversion helpers
