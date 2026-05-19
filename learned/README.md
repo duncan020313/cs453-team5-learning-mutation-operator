@@ -77,9 +77,9 @@ RHS: MethodInvocation[SimpleName(assertEquals), ARGS[?h1, ?h0]]
 
 `patterns` 는 `score` 내림차순 정렬됨.
 
-## 추천 필터 (출발점)
+## 추천 필터 (선택)
 
-10,389 개는 mutation operator 로 쓰기엔 많음. 다음 휴리스틱으로 시작하길 권장:
+> 필터는 **선택사항**입니다. Mutation operator 관점에선 매칭 안 되는 패턴은 자동 도태되어 (fire 안 함 → mutant 생성 안 함) dead weight 일 뿐 손해 거의 없음. 10,389 개 모두 그대로 써도 무방.
 
 - `support >= 20` — 최소 20 fix 사례
 - `support / cohortSize >= 0.005` — 한 프로젝트만의 우연 제외
