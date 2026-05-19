@@ -141,6 +141,24 @@ for (JsonNode run : root.get("runs")) {
 }
 ```
 
+## 학습 파라미터 (현재 산출물)
+
+이 폴더의 `patterns-full.json` 은 다음 설정으로 학습됨:
+
+| 파라미터 | 값 | 설명 |
+|---|---|---|
+| Dataset | `data/sstubsLarge.json` | ManySStuBs4J 1000-projects 변형, 63,923 fix |
+| Cohort | 풀스케일 | 16 bugType 전부, 각 type 의 모든 fix 사용 (limit 없음) |
+| `minSupport` | **2** | 최소 2 fix 에서 매칭돼야 cluster 유지 (`PatternLearner` 생성자) |
+| `maxHoles` | **4** | 한 패턴이 가질 수 있는 hole 수 상한 — cluster 머지 컷오프 (`HierarchicalClusterer`) |
+| `maxBucketSize` | **1500** | 한 bucket 이 이 크기 초과면 random sub-bucket 으로 분할 (메모리 폭증 방지) |
+| No-op 필터 | on | `before.equals(after)` 인 cluster 제거 (`PatternLearner.learn`) |
+| Mutation-safety 필터 | on | `LHS holes ⊆ RHS holes` 만 유지 (swap 후 unbound hole 없음) |
+| Wrap stripping | on | `class _Wrapper_ { void _m_() {…} }` 제거 후 학습 (`GumTreeDiffEngine.stripWrap`) |
+| JVM heap | `-Xmx5g` | per-process |
+| 병렬도 | `PARALLEL=2` | 2 JVM 동시 실행 |
+| Wall time | ~40 min | 10-core M-series, 16 GB RAM |
+
 ## 재학습 (선택)
 
 다른 임계값으로 다시 학습하고 싶으면:
@@ -151,5 +169,7 @@ PARALLEL=2 bash tools/train-parallel.sh    # ~40min, JDK17 필요. per-type/<TYP
 ```
 
 per-type 16 파일을 한 파일로 머지하는 건 별도 단계 (현재는 외부 스크립트로 처리).
+
+파라미터 변경: `LearnCommand` 옵션 (`--min-support N`, `--max-holes M`, `--limit K`) 또는 코드의 `DEFAULT_*` 상수.
 
 기본 파라미터: `minSupport=2`, `maxHoles=4`, bucket-cap 1500. 변경하려면 `PatternLearner` / `HierarchicalClusterer` 생성자 인자 또는 `LearnCommand` 옵션 (`--min-support`, `--max-holes`) 참고.
