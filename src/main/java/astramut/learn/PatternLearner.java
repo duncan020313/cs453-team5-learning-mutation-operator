@@ -33,6 +33,8 @@ public class PatternLearner {
         for (HierarchicalClusterer.Cluster c : clusters) {
             int support = c.members().size();
             if (support < minSupport) continue;
+            // Drop no-op patterns (before equals after)
+            if (c.representative().before().equals(c.representative().after())) continue;
             // Drop patterns that aren't mutation-safe: after swap they'd have unbound new-RHS holes.
             if (!c.representative().isMutationSafe()) continue;
             patterns.add(new LearnedPattern(
