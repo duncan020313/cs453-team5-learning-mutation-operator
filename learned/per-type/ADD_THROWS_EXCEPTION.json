@@ -1,1 +1,0 @@
-{"meta":{"dataset":"data/sstubsLarge.json","limit":0,"minSupport":2,"maxHoles":4,"topPerRun":30,"totalRunMs":772,"timestamp":"2026-05-19T13:37:44.433445Z"},"runs":[{"label":"ADD_THROWS_EXCEPTION","cohortSize":206,"diffSuccesses":206,"diffFailures":0,"learnTimeMs":18,"patternCount":0,"patterns":[]}]}
