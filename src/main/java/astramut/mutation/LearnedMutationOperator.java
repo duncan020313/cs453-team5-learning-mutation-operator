@@ -8,21 +8,16 @@ import astramut.learn.TreePattern;
 import com.github.javaparser.StaticJavaParser;
 import com.github.javaparser.ast.CompilationUnit;
 import com.github.javaparser.ast.Node;
-import com.github.javaparser.ast.expr.BinaryExpr;
-import com.github.javaparser.ast.expr.BooleanLiteralExpr;
-import com.github.javaparser.ast.expr.CharLiteralExpr;
-import com.github.javaparser.ast.expr.DoubleLiteralExpr;
+import com.github.javaparser.ast.body.BodyDeclaration;
 import com.github.javaparser.ast.expr.Expression;
-import com.github.javaparser.ast.expr.IntegerLiteralExpr;
-import com.github.javaparser.ast.expr.LongLiteralExpr;
-import com.github.javaparser.ast.expr.NameExpr;
-import com.github.javaparser.ast.expr.NullLiteralExpr;
-import com.github.javaparser.ast.expr.SimpleName;
-import com.github.javaparser.ast.expr.StringLiteralExpr;
+import com.github.javaparser.ast.stmt.BlockStmt;
+import com.github.javaparser.ast.stmt.Statement;
 
 import java.util.ArrayList;
+import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Optional;
+import java.util.Set;
 
 public final class LearnedMutationOperator implements MutationOperator {
     private final LearnedPattern learnedPattern;
@@ -64,11 +59,6 @@ public final class LearnedMutationOperator implements MutationOperator {
             return List.of();
         }
 
-        Optional<BinaryExpr.Operator> replacementOperator = replacementBinaryOperator();
-        if (replacementOperator.isEmpty()) {
-            return List.of();
-        }
-
         CompilationUnit original;
         try {
             original = StaticJavaParser.parse(sourceCode);
@@ -76,116 +66,246 @@ public final class LearnedMutationOperator implements MutationOperator {
             throw new IllegalArgumentException("Failed to parse Java source: " + sourceName, e);
         }
 
-        List<BinaryExpr> candidates = original.findAll(BinaryExpr.class);
-        List<Integer> matchedIndexes = new ArrayList<>();
+        List<Candidate> candidates = collectCandidates(original, mutationPattern.before());
+        List<MatchSite> matchedSites = new ArrayList<>();
 
-        for (int i = 0; i < candidates.size(); i++) {
-            BinaryExpr candidate = candidates.get(i);
-            TreePattern candidatePattern = toPattern(candidate);
+        for (Candidate candidate : candidates) {
+            TreePattern targetPattern = candidate.toPattern(original);
+            if (targetPattern == null) {
+                continue;
+            }
 
-            PatternMatcher.MatchResult result = PatternMatcher.match(mutationPattern.before(), candidatePattern);
-            if (result.matched()) {
-                matchedIndexes.add(i);
+            PatternMatcher.MatchResult matchResult = PatternMatcher.match(
+                    mutationPattern.before(),
+                    targetPattern
+            );
+
+            if (!matchResult.matched()) {
+                continue;
+            }
+
+            TreePattern instantiated;
+            try {
+                instantiated = PatternInstantiator.instantiate(
+                        mutationPattern.after(),
+                        matchResult.bindings()
+                );
+            } catch (IllegalStateException e) {
+                continue;
+            }
+
+            if (candidate.canReplaceWith(original, instantiated)) {
+                matchedSites.add(new MatchSite(candidate, instantiated));
             }
         }
 
         List<Mutant> mutants = new ArrayList<>();
-        for (int i = 0; i < matchedIndexes.size() && mutants.size() < maxMutants; i++) {
-            int occurrenceIndex = matchedIndexes.get(i);
+        Set<String> seenSources = new LinkedHashSet<>();
+
+        for (int i = 0; i < matchedSites.size() && mutants.size() < maxMutants; i++) {
+            MatchSite site = matchedSites.get(i);
 
             CompilationUnit cloned = original.clone();
-            List<BinaryExpr> clonedBinaryExpressions = cloned.findAll(BinaryExpr.class);
-
-            if (occurrenceIndex >= clonedBinaryExpressions.size()) {
+            boolean replaced = site.candidate().replaceIn(cloned, site.replacementPattern());
+            if (!replaced) {
                 continue;
             }
 
-            BinaryExpr target = clonedBinaryExpressions.get(occurrenceIndex);
-            if (target.getOperator() == replacementOperator.get()) {
+            String mutatedSource = cloned.toString();
+            if (!seenSources.add(mutatedSource)) {
                 continue;
             }
 
-            target.setOperator(replacementOperator.get());
+            String mutantId = name + "-occurrence-" + site.candidate().globalIndex();
 
-            String mutantId = name + "-occurrence-" + occurrenceIndex;
             mutants.add(new Mutant(
                     mutantId,
                     name,
                     sourceName,
-                    cloned.toString(),
-                    occurrenceIndex
+                    mutatedSource,
+                    site.candidate().globalIndex()
             ));
         }
 
         return mutants;
     }
 
-    private Optional<BinaryExpr.Operator> replacementBinaryOperator() {
-        if (!(mutationPattern.after() instanceof TreeNode afterNode)) {
-            return Optional.empty();
+    private static List<Candidate> collectCandidates(CompilationUnit compilationUnit, TreePattern matchPattern) {
+        List<Candidate> candidates = new ArrayList<>();
+        int globalIndex = 0;
+
+        List<BodyDeclaration> declarations = compilationUnit.findAll(BodyDeclaration.class);
+        for (int i = 0; i < declarations.size(); i++) {
+            candidates.add(new NodeCandidate(CandidateKind.BODY_DECLARATION, i, globalIndex++));
         }
 
-        if (!afterNode.type().equals("InfixExpression")) {
-            return Optional.empty();
+        List<Statement> statements = compilationUnit.findAll(Statement.class);
+        for (int i = 0; i < statements.size(); i++) {
+            candidates.add(new NodeCandidate(CandidateKind.STATEMENT, i, globalIndex++));
         }
 
-        return OperatorToken.toBinaryOperator(afterNode.label());
+        List<Expression> expressions = compilationUnit.findAll(Expression.class);
+        for (int i = 0; i < expressions.size(); i++) {
+            candidates.add(new NodeCandidate(CandidateKind.EXPRESSION, i, globalIndex++));
+        }
+
+        /*
+         * A learned block pattern such as Block[?a, stmt, ?b] -> Block[?a, ?b]
+         * should fire even when it appears inside a larger method body: pre(); a(); stmt; b(); post();
+         *
+         * Node.replace(BlockStmt) can only replace the whole block.
+         * This window candidate matches a contiguous statement slice and rewrites only that slice.
+         */
+        if (matchPattern instanceof TreeNode n && isBlock(n.type())) {
+            int windowSize = n.children().size();
+            if (windowSize > 0) {
+                List<BlockStmt> blocks = compilationUnit.findAll(BlockStmt.class);
+                for (int blockIndex = 0; blockIndex < blocks.size(); blockIndex++) {
+                    BlockStmt block = blocks.get(blockIndex);
+                    int statementCount = block.getStatements().size();
+                    for (int start = 0; start + windowSize <= statementCount; start++) {
+                        candidates.add(new BlockWindowCandidate(blockIndex, start, windowSize, globalIndex++));
+                    }
+                }
+            }
+        }
+
+        return candidates;
     }
 
-    private static TreePattern toPattern(Expression expression) {
-        if (expression instanceof BinaryExpr b) {
-            return new TreeNode(
-                    "InfixExpression",
-                    OperatorToken.fromBinaryOperator(b.getOperator()),
-                    List.of(toPattern(b.getLeft()), toPattern(b.getRight()))
-            );
-        }
+    private interface Candidate {
+        int globalIndex();
 
-        if (expression instanceof NameExpr n) {
-            return new TreeNode("SimpleName", n.getNameAsString(), List.of());
-        }
+        TreePattern toPattern(CompilationUnit compilationUnit);
 
-        if (expression instanceof NullLiteralExpr) {
-            return new TreeNode("NullLiteral", "null", List.of());
-        }
+        boolean canReplaceWith(CompilationUnit compilationUnit, TreePattern replacementPattern);
 
-        if (expression instanceof BooleanLiteralExpr b) {
-            return new TreeNode("BooleanLiteral", String.valueOf(b.getValue()), List.of());
-        }
-
-        if (expression instanceof IntegerLiteralExpr i) {
-            return new TreeNode("NumberLiteral", i.getValue(), List.of());
-        }
-
-        if (expression instanceof LongLiteralExpr l) {
-            return new TreeNode("NumberLiteral", l.getValue(), List.of());
-        }
-
-        if (expression instanceof DoubleLiteralExpr d) {
-            return new TreeNode("NumberLiteral", d.getValue(), List.of());
-        }
-
-        if (expression instanceof CharLiteralExpr c) {
-            return new TreeNode("CharacterLiteral", c.getValue(), List.of());
-        }
-
-        if (expression instanceof StringLiteralExpr s) {
-            return new TreeNode("StringLiteral", s.getValue(), List.of());
-        }
-
-        return new TreeNode(expression.getClass().getSimpleName(), expression.toString(), List.of());
+        boolean replaceIn(CompilationUnit compilationUnit, TreePattern replacementPattern);
     }
 
-    @SuppressWarnings("unused")
-    private static TreePattern toPattern(Node node) {
-        if (node instanceof Expression e) {
-            return toPattern(e);
+    private enum CandidateKind {
+        BODY_DECLARATION,
+        STATEMENT,
+        EXPRESSION
+    }
+
+    private record NodeCandidate(CandidateKind kind, int indexWithinKind, int globalIndex) implements Candidate {
+        @Override
+        public TreePattern toPattern(CompilationUnit compilationUnit) {
+            Node node = resolve(compilationUnit);
+            if (node == null) {
+                return null;
+            }
+            return JavaParserTreeAdapter.toPattern(node);
         }
 
-        if (node instanceof SimpleName s) {
-            return new TreeNode("SimpleName", s.asString(), List.of());
+        @Override
+        public boolean canReplaceWith(CompilationUnit compilationUnit, TreePattern replacementPattern) {
+            Node target = resolve(compilationUnit);
+            return target != null && JavaParserTreeBuilder.buildForContext(replacementPattern, target).isPresent();
         }
 
-        return new TreeNode(node.getClass().getSimpleName(), node.toString(), List.of());
+        @Override
+        public boolean replaceIn(CompilationUnit compilationUnit, TreePattern replacementPattern) {
+            Node target = resolve(compilationUnit);
+            if (target == null) {
+                return false;
+            }
+
+            Optional<Node> replacement = JavaParserTreeBuilder.buildForContext(replacementPattern, target);
+            return replacement.filter(target::replace).isPresent();
+        }
+
+        private Node resolve(CompilationUnit compilationUnit) {
+            if (kind == CandidateKind.BODY_DECLARATION) {
+                List<BodyDeclaration> declarations = compilationUnit.findAll(BodyDeclaration.class);
+                if (indexWithinKind >= declarations.size()) {
+                    return null;
+                }
+                return declarations.get(indexWithinKind);
+            }
+
+            if (kind == CandidateKind.STATEMENT) {
+                List<Statement> statements = compilationUnit.findAll(Statement.class);
+                if (indexWithinKind >= statements.size()) {
+                    return null;
+                }
+                return statements.get(indexWithinKind);
+            }
+
+            List<Expression> expressions = compilationUnit.findAll(Expression.class);
+            if (indexWithinKind >= expressions.size()) {
+                return null;
+            }
+            return expressions.get(indexWithinKind);
+        }
+    }
+
+    private record BlockWindowCandidate(
+            int blockIndex,
+            int start,
+            int length,
+            int globalIndex
+    ) implements Candidate {
+        @Override
+        public TreePattern toPattern(CompilationUnit compilationUnit) {
+            BlockStmt block = resolveBlock(compilationUnit);
+            if (block == null || start + length > block.getStatements().size()) {
+                return null;
+            }
+
+            List<TreePattern> children = new ArrayList<>();
+            for (int i = start; i < start + length; i++) {
+                children.add(JavaParserTreeAdapter.toPattern(block.getStatements().get(i)));
+            }
+            return new TreeNode("Block", "", children);
+        }
+
+        @Override
+        public boolean canReplaceWith(CompilationUnit compilationUnit, TreePattern replacementPattern) {
+            return resolveBlock(compilationUnit) != null
+                    && JavaParserTreeBuilder.buildStatementList(replacementPattern).isPresent();
+        }
+
+        @Override
+        public boolean replaceIn(CompilationUnit compilationUnit, TreePattern replacementPattern) {
+            BlockStmt block = resolveBlock(compilationUnit);
+            if (block == null || start + length > block.getStatements().size()) {
+                return false;
+            }
+
+            Optional<List<Statement>> replacementStatements = JavaParserTreeBuilder.buildStatementList(replacementPattern);
+            if (replacementStatements.isEmpty()) {
+                return false;
+            }
+
+            for (int i = 0; i < length; i++) {
+                block.getStatements().remove(start);
+            }
+
+            int insertAt = start;
+            for (Statement statement : replacementStatements.get()) {
+                block.addStatement(insertAt++, statement);
+            }
+
+            return true;
+        }
+
+        private BlockStmt resolveBlock(CompilationUnit compilationUnit) {
+            List<BlockStmt> blocks = compilationUnit.findAll(BlockStmt.class);
+            if (blockIndex >= blocks.size()) {
+                return null;
+            }
+            return blocks.get(blockIndex);
+        }
+    }
+
+    private record MatchSite(Candidate candidate, TreePattern replacementPattern) {
+    }
+
+    private static boolean isBlock(String type) {
+        return type.equals("Block")
+                || type.equals("BlockStmt")
+                || type.equals("BlockStatement");
     }
 }
