@@ -12,6 +12,7 @@ public class AstraMutCommand {
         System.arraycopy(args, 1, sub, 0, sub.length);
 
         return switch (args[0]) {
+            case "mutate" -> new MutateCommand().run(sub);
             case "experiment" -> new ExperimentRunner().run(sub);
             case "train" -> new LearnCommand().run(sub);
             default -> {
@@ -24,6 +25,7 @@ public class AstraMutCommand {
     private int printUsage() {
         System.out.println("Usage: astramut <train|mutate|experiment> [options]");
         System.out.println("       astramut train <datasetPath> [--bug-type T] [--min-support N] [--max-holes M] [--limit K] [--top N]");
+        System.out.println("       astramut mutate --model <patterns-full.json> --input <Java file> --output <dir>");
         System.out.println("       astramut experiment pitest-score [options]");
         return 0;
     }
