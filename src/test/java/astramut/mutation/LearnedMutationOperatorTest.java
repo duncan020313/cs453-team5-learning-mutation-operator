@@ -13,7 +13,7 @@ import java.util.List;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
-class LearnedMutationOperatorImprovementTest {
+class LearnedMutationOperatorTest {
     @Test
     void mutatesScopedMethodCallReceiverAndArguments() {
         EditPattern fixPattern = new EditPattern(
