@@ -26,7 +26,7 @@ public class AstraMutCommand {
         System.out.println("Usage: astramut <train|mutate|experiment> [options]");
         System.out.println("       astramut train <datasetPath> [--bug-type T] [--min-support N] [--max-holes M] [--limit K] [--top N]");
         System.out.println("       astramut mutate --model <patterns-full.json> --input <Java file> --output <dir>");
-        System.out.println("       astramut experiment pitest-score [options]");
+        System.out.println("       astramut experiment <pitest-score|learned-score> [options]");
         return 0;
     }
 }
