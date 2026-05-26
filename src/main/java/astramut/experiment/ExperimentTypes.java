@@ -7,7 +7,11 @@ import java.util.Optional;
 final class ExperimentTypes {
   private ExperimentTypes() {}
 
-  record CommandResult(int exitCode, String output) {}
+  record CommandResult(int exitCode, String output, boolean timedOut) {
+    CommandResult(int exitCode, String output) {
+      this(exitCode, output, false);
+    }
+  }
 
   record ExportedMetadata(
       String srcClassesDir,

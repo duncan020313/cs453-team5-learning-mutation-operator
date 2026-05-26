@@ -7,6 +7,7 @@ import astramut.experiment.ExperimentTypes.ExportedMetadata;
 import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.time.Duration;
 import java.util.List;
 
 final class Defects4jClient {
@@ -79,6 +80,20 @@ final class Defects4jClient {
       throws IOException, InterruptedException, CommandFailedException {
     CommandResult result = processRunner.run(workDir, List.of(defects4j.toString(), "compile"));
     CommandFailedException.throwIfFailed("defects4j compile " + project + "-" + version, result);
+  }
+
+  CommandResult compileForMutation(Path workDir) throws IOException, InterruptedException {
+    return processRunner.run(workDir, List.of(defects4j.toString(), "compile"));
+  }
+
+  CommandResult runRelevantTests(Path workDir, List<String> relevantTests, Duration timeout)
+      throws IOException, InterruptedException {
+    Path suite = workDir.resolve(".astramut-relevant-tests");
+    Files.write(suite, relevantTests);
+    return processRunner.run(
+        workDir,
+        List.of(defects4j.toString(), "test", "-s", suite.toAbsolutePath().normalize().toString()),
+        timeout);
   }
 
   ExportedMetadata exportMetadata(Path workDir)
