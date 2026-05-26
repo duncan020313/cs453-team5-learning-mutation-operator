@@ -1,23 +1,15 @@
 package astramut.cli;
 
-import astramut.learn.EditPattern;
-import astramut.learn.Hole;
 import astramut.learn.LearnedPattern;
-import astramut.learn.TreeNode;
-import astramut.learn.TreePattern;
+import astramut.learn.LearnedPatternEntry;
+import astramut.learn.LearnedPatternJsonLoader;
 import astramut.mutation.LearnedMutationOperator;
 import astramut.mutation.Mutant;
 import astramut.mutation.MutationOperator;
-
-import com.fasterxml.jackson.databind.JsonNode;
-import com.fasterxml.jackson.databind.ObjectMapper;
-
 import java.io.IOException;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
-
-import java.util.ArrayList;
 import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Set;
@@ -113,99 +105,15 @@ public class MutateCommand {
     }
 
     private List<LearnedPattern> loadPatterns(Options o) throws IOException {
-        ObjectMapper mapper = new ObjectMapper();
-        JsonNode root = mapper.readTree(o.modelPath.toFile());
-
-        JsonNode runs = root.path("runs");
-        if (!runs.isArray()) {
-            throw new IllegalArgumentException("model JSON must contain array field: runs");
-        }
-
-        List<LearnedPattern> selected = new ArrayList<>();
-
-        for (JsonNode run : runs) {
-            String label = run.path("label").asText("");
-            int cohortSize = run.path("cohortSize").asInt(0);
-
-            if (o.bugType != null && !o.bugType.equals(label)) {
-                continue;
-            }
-
-            JsonNode patterns = run.path("patterns");
-            if (!patterns.isArray()) {
-                continue;
-            }
-
-            for (JsonNode patternJson : patterns) {
-                int support = patternJson.path("support").asInt(0);
-                double specificity = patternJson.path("specificity").asDouble(0.0);
-
-                if (support < o.minSupport) {
-                    continue;
-                }
-
-                if (specificity < o.minSpecificity) {
-                    continue;
-                }
-
-                if (o.minCohortRatio > 0.0) {
-                    if (cohortSize <= 0) {
-                        continue;
-                    }
-                    double ratio = (double) support / (double) cohortSize;
-                    if (ratio < o.minCohortRatio) {
-                        continue;
-                    }
-                }
-
-                TreePattern before = treeFromJson(patternJson.path("before"));
-                TreePattern after = treeFromJson(patternJson.path("after"));
-
-                EditPattern editPattern = new EditPattern(before, after);
-
-                LearnedPattern learnedPattern = new LearnedPattern(
-                        editPattern,
-                        support,
-                        specificity,
-                        List.of(editPattern)
-                );
-
-                selected.add(learnedPattern);
-
-                if (selected.size() >= o.maxOperators) {
-                    return selected;
-                }
-            }
-        }
-
-        return selected;
-    }
-
-    private static TreePattern treeFromJson(JsonNode node) {
-        if (node == null || node.isMissingNode() || node.isNull()) {
-            throw new IllegalArgumentException("invalid tree node in model JSON");
-        }
-
-        if (node.has("hole")) {
-            return new Hole(node.get("hole").asText());
-        }
-
-        String type = node.path("type").asText(null);
-        if (type == null || type.isBlank()) {
-            throw new IllegalArgumentException("tree node is missing required field: type");
-        }
-
-        String label = node.path("label").asText("");
-
-        List<TreePattern> children = new ArrayList<>();
-        JsonNode childArray = node.path("children");
-        if (childArray.isArray()) {
-            for (JsonNode child : childArray) {
-                children.add(treeFromJson(child));
-            }
-        }
-
-        return new TreeNode(type, label, children);
+        LearnedPatternJsonLoader.Selection selection = new LearnedPatternJsonLoader.Selection(
+                o.bugType,
+                o.minSupport,
+                o.minSpecificity,
+                o.minCohortRatio
+        );
+        return new LearnedPatternJsonLoader().selectTop(o.modelPath, selection, o.maxOperators).stream()
+                .map(LearnedPatternEntry::pattern)
+                .toList();
     }
 
     private int printUsage() {
