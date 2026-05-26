@@ -46,6 +46,6 @@ final class MutationTotals {
   }
 
   double mutationScore() {
-    return generated == 0 ? 0.0 : killed / (double) generated;
+    return generated == 0 ? 1.0 : killed / (double) generated;
   }
 }

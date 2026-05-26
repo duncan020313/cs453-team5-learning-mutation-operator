@@ -118,7 +118,7 @@ final class SummaryCsvStore {
     }
 
     List<SummaryRow> successes =
-        rows.stream().filter(row -> "SUCCESS".equals(row.status()) && row.generated() > 0).toList();
+        rows.stream().filter(row -> "SUCCESS".equals(row.status())).toList();
     Map<MutatorVariant, List<SummaryRow>> byVariant =
         successes.stream()
             .collect(

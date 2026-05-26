@@ -62,17 +62,28 @@ class SummaryCsvStoreTest {
             List.of("org.example.CTest"),
             totals,
             4);
+    SummaryRow zeroGenerated =
+        SummaryRow.success(
+            "Lang",
+            2,
+            "2f",
+            MutatorVariant.DEFAULTS,
+            Map.of("org.example.C", Set.of("m")),
+            List.of("org.example.CTest"),
+            new MutationTotals(),
+            5);
 
     try (BufferedWriter writer = store.openWriter(false)) {
       store.ensureHeader(writer, false);
-      store.writeRows(writer, List.of(row));
+      store.writeRows(writer, List.of(row, zeroGenerated));
     }
 
     store.writeAverage();
 
+    assertTrue(zeroGenerated.toCsv().contains(",1.0000,"));
     String average = Files.readString(tempDir.resolve("average.txt"), StandardCharsets.UTF_8);
-    assertTrue(average.contains("DEFAULTS.successfulBugs=1"));
-    assertTrue(average.contains("DEFAULTS.averageMutationScore=0.5000"));
+    assertTrue(average.contains("DEFAULTS.successfulBugs=2"));
+    assertTrue(average.contains("DEFAULTS.averageMutationScore=0.7500"));
     assertTrue(average.contains("ALL.successfulBugs=0"));
   }
 
