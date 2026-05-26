@@ -10,6 +10,7 @@ import org.junit.jupiter.api.Test;
 
 import java.util.List;
 
+import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
@@ -182,6 +183,38 @@ class LearnedMutationOperatorTest {
         String mutated = mutants.get(0).mutatedSource();
 
         assertTrue(mutated.contains("return x != y;"), mutated);
+    }
+
+    @Test
+    void appliesMutantFilterBeforeMaxMutantLimit() {
+        EditPattern fixPattern = new EditPattern(
+                infixOperator("!="),
+                infixOperator("==")
+        );
+
+        LearnedMutationOperator operator = operatorFrom(fixPattern);
+
+        String source = """
+                class Example {
+                    boolean beforeOne(int x, int y) {
+                        return x == y;
+                    }
+
+                    boolean beforeTwo(int x, int y) {
+                        return x == y;
+                    }
+
+                    boolean target(int x, int y) {
+                        return x == y;
+                    }
+                }
+                """;
+
+        List<Mutant> mutants =
+                operator.generateMutants(source, "Example.java", 1, mutant -> mutant.lineNumber() >= 10);
+
+        assertEquals(1, mutants.size());
+        assertTrue(mutants.get(0).mutatedSource().contains("boolean target(int x, int y) {\n        return x != y;\n    }"));
     }
 
     private static LearnedMutationOperator operatorFrom(EditPattern fixPattern) {

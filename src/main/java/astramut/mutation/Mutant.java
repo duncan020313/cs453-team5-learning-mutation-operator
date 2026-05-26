@@ -5,6 +5,16 @@ public record Mutant(
         String operatorName,
         String sourceName,
         String mutatedSource,
-        int occurrenceIndex
+        int occurrenceIndex,
+        int lineNumber
 ) {
+    public Mutant(
+            String id,
+            String operatorName,
+            String sourceName,
+            String mutatedSource,
+            int occurrenceIndex
+    ) {
+        this(id, operatorName, sourceName, mutatedSource, occurrenceIndex, -1);
+    }
 }

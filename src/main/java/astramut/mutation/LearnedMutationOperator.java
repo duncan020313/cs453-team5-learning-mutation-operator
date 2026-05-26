@@ -19,6 +19,7 @@ import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Optional;
 import java.util.Set;
+import java.util.function.Predicate;
 
 
 public final class LearnedMutationOperator implements MutationOperator {
@@ -57,6 +58,16 @@ public final class LearnedMutationOperator implements MutationOperator {
 
     @Override
     public List<Mutant> generateMutants(String sourceCode, String sourceName, int maxMutants) {
+        return generateMutants(sourceCode, sourceName, maxMutants, mutant -> true);
+    }
+
+    @Override
+    public List<Mutant> generateMutants(
+            String sourceCode,
+            String sourceName,
+            int maxMutants,
+            Predicate<Mutant> mutantFilter
+    ) {
         if (maxMutants <= 0) {
             return List.of();
         }
@@ -114,19 +125,24 @@ public final class LearnedMutationOperator implements MutationOperator {
             }
 
             String mutatedSource = cloned.toString();
-            if (!seenSources.add(mutatedSource)) {
-                continue;
-            }
-
             String mutantId = name + "-occurrence-" + site.candidate().globalIndex();
 
-            mutants.add(new Mutant(
+            Mutant mutant = new Mutant(
                     mutantId,
                     name,
                     sourceName,
                     mutatedSource,
-                    site.candidate().globalIndex()
-            ));
+                    site.candidate().globalIndex(),
+                    site.candidate().lineNumber(original)
+            );
+            if (!mutantFilter.test(mutant)) {
+                continue;
+            }
+            if (!seenSources.add(mutatedSource)) {
+                continue;
+            }
+
+            mutants.add(mutant);
         }
 
         return mutants;
@@ -198,6 +214,8 @@ public final class LearnedMutationOperator implements MutationOperator {
         boolean canReplaceWith(CompilationUnit compilationUnit, TreePattern replacementPattern);
 
         boolean replaceIn(CompilationUnit compilationUnit, TreePattern replacementPattern);
+
+        int lineNumber(CompilationUnit compilationUnit);
     }
 
     private enum CandidateKind {
@@ -231,6 +249,14 @@ public final class LearnedMutationOperator implements MutationOperator {
 
             Optional<Node> replacement = JavaParserTreeBuilder.buildForContext(replacementPattern, target);
             return replacement.filter(target::replace).isPresent();
+        }
+
+        @Override
+        public int lineNumber(CompilationUnit compilationUnit) {
+            Node target = resolve(compilationUnit);
+            return target == null
+                    ? -1
+                    : target.getRange().map(range -> range.begin.line).orElse(-1);
         }
 
         private Node resolve(CompilationUnit compilationUnit) {
@@ -308,6 +334,15 @@ public final class LearnedMutationOperator implements MutationOperator {
             return true;
         }
 
+        @Override
+        public int lineNumber(CompilationUnit compilationUnit) {
+            BlockStmt block = resolveBlock(compilationUnit);
+            if (block == null || start >= block.getStatements().size()) {
+                return -1;
+            }
+            return block.getStatements().get(start).getRange().map(range -> range.begin.line).orElse(-1);
+        }
+
         private BlockStmt resolveBlock(CompilationUnit compilationUnit) {
             List<BlockStmt> blocks = compilationUnit.findAll(BlockStmt.class);
             if (blockIndex >= blocks.size()) {
@@ -354,6 +389,14 @@ public final class LearnedMutationOperator implements MutationOperator {
 
             binaryExpr.setOperator(replacement.get());
             return true;
+        }
+
+        @Override
+        public int lineNumber(CompilationUnit compilationUnit) {
+            BinaryExpr binaryExpr = resolve(compilationUnit);
+            return binaryExpr == null
+                    ? -1
+                    : binaryExpr.getRange().map(range -> range.begin.line).orElse(-1);
         }
 
         private BinaryExpr resolve(CompilationUnit compilationUnit) {
