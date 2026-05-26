@@ -34,6 +34,24 @@ Useful options:
 - `--no-resume` re-runs bugs even if a successful row already exists in `summary.csv`.
 - `--keep-workdirs` keeps checked-out Defects4J projects for debugging.
 
+## Learned Mutation Score Experiment
+
+To score learned source-level mutation operators on the same Defects4J fixed versions and relevant tests, run:
+
+```bash
+source tools/defects4j-env.sh
+gradle run --args="experiment learned-score --model-archive learned_260520.tar.gz --projects Lang --bugs 1 --preset top100"
+```
+
+The learned experiment extracts `learned/patterns-full.json` from the model archive, ranks all learned operators by global score, and evaluates single-site mutants for each selected preset. Results are written to `data/defects4j-learned/results/summary.csv`, with separate rows for `LEARNED_TOP_1000` and `LEARNED_TOP_100` when both presets are selected.
+
+Useful options:
+- `--preset top1000,top100` selects the learned operator sets. Default: both.
+- `--bug-type <label>` filters learned patterns by training label.
+- `--min-support <n>`, `--min-specificity <x>`, and `--min-cohort-ratio <x>` filter learned operators before ranking.
+- `--mutant-timeout-seconds <n>` sets the per-mutant relevant-test timeout.
+- `--no-resume` re-runs bugs even if a successful learned row already exists.
+
 ## Build
 
 ```bash
