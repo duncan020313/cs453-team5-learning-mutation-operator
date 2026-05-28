@@ -2,7 +2,9 @@ package astramut.learn;
 
 import org.junit.jupiter.api.Test;
 
+import java.util.HashSet;
 import java.util.List;
+import java.util.Set;
 
 import static org.junit.jupiter.api.Assertions.*;
 
@@ -45,6 +47,39 @@ class AntiUnifierTest {
         assertInstanceOf(Hole.class, afterLeft);
         assertEquals(((Hole) beforeLeft).id(), ((Hole) afterLeft).id(),
                 "the variable should resolve to the same hole on both sides");
+    }
+
+    @Test
+    void holeIdsRemainDisjointAcrossNestedAntiUnification() {
+        // §1-§7 regression: when AU consumes patterns that already contain holes
+        // (i.e., later passes over cluster representatives), pre-existing ?h0 and
+        // newly-allocated ?h0 must not collide. The receiver hole and method-name
+        // hole live in different roles → distinct ids required.
+        EditPattern a = methodCallWithHole("foo");
+        EditPattern b = methodCallWithHole("baz");
+        EditPattern au = AntiUnifier.antiUnify(a, b);
+
+        Set<String> ids = new HashSet<>();
+        collectHoleIds(au.before(), ids);
+        assertEquals(2, ids.size(),
+                "receiver / method-name slots must use different hole ids; got " + ids);
+    }
+
+    /** Build MethodInvocation(?h0, method) — receiver is already a hole (simulating a previous AU pass). */
+    private static EditPattern methodCallWithHole(String methodName) {
+        TreePattern before = new TreeNode("MethodInvocation", "", List.of(
+                new Hole("?h0"),
+                TreeNode.leaf("Identifier", methodName)));
+        TreePattern after = new TreeNode("MethodInvocation", "", List.of(
+                new Hole("?h0"),
+                TreeNode.leaf("Identifier", methodName + "X")));
+        return new EditPattern(before, after);
+    }
+
+    private static void collectHoleIds(TreePattern p, Set<String> ids) {
+        if (p instanceof Hole h) { ids.add(h.id()); return; }
+        TreeNode n = (TreeNode) p;
+        for (TreePattern c : n.children()) collectHoleIds(c, ids);
     }
 
     private static EditPattern flipNullCheck(String var) {

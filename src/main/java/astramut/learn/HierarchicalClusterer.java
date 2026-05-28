@@ -3,7 +3,6 @@ package astramut.learn;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.Comparator;
-import java.util.HashMap;
 import java.util.IdentityHashMap;
 import java.util.LinkedHashMap;
 import java.util.List;
@@ -17,15 +16,13 @@ public final class HierarchicalClusterer {
 
     public static final int DEFAULT_MAX_BUCKET_SIZE = 1500;
 
-    private final int maxHolesPerPattern;
     private final int maxBucketSize;
 
-    public HierarchicalClusterer(int maxHolesPerPattern) {
-        this(maxHolesPerPattern, DEFAULT_MAX_BUCKET_SIZE);
+    public HierarchicalClusterer() {
+        this(DEFAULT_MAX_BUCKET_SIZE);
     }
 
-    public HierarchicalClusterer(int maxHolesPerPattern, int maxBucketSize) {
-        this.maxHolesPerPattern = maxHolesPerPattern;
+    public HierarchicalClusterer(int maxBucketSize) {
         this.maxBucketSize = maxBucketSize;
     }
 
@@ -76,7 +73,6 @@ public final class HierarchicalClusterer {
             PairEntry best = heap.poll();
             if (best == null) break;
             if (!alive.contains(best.a) || !alive.contains(best.b)) continue;
-            if (best.holes > maxHolesPerPattern) break;
 
             alive.remove(best.a);
             alive.remove(best.b);
@@ -99,7 +95,7 @@ public final class HierarchicalClusterer {
         Map<String, List<EditPattern>> members = new LinkedHashMap<>();
         Map<String, EditPattern> rep = new LinkedHashMap<>();
         for (Cluster c : clusters) {
-            String sig = canonicalSig(c.representative());
+            String sig = c.representative().canonicalSignature();
             members.computeIfAbsent(sig, k -> new ArrayList<>()).addAll(c.members());
             rep.putIfAbsent(sig, c.representative());
         }
@@ -108,31 +104,6 @@ public final class HierarchicalClusterer {
             out.add(new Cluster(rep.get(e.getKey()), e.getValue()));
         }
         return out;
-    }
-
-    /** Canonicalize hole ids left-to-right across before+after so equivalent rewrites collapse. */
-    private static String canonicalSig(EditPattern p) {
-        Map<String, String> rename = new HashMap<>();
-        int[] next = {0};
-        StringBuilder sb = new StringBuilder();
-        appendCanon(p.before(), rename, next, sb);
-        sb.append("↦");
-        appendCanon(p.after(), rename, next, sb);
-        return sb.toString();
-    }
-
-    private static void appendCanon(TreePattern t, Map<String, String> rename, int[] next, StringBuilder sb) {
-        if (t instanceof Hole h) {
-            sb.append(rename.computeIfAbsent(h.id(), k -> "?" + next[0]++));
-            return;
-        }
-        TreeNode n = (TreeNode) t;
-        sb.append(n.type()).append('(').append(n.label()).append(")[");
-        for (int i = 0; i < n.children().size(); i++) {
-            if (i > 0) sb.append(',');
-            appendCanon(n.children().get(i), rename, next, sb);
-        }
-        sb.append(']');
     }
 
     private static void addPair(Cluster a, Cluster b, PriorityQueue<PairEntry> heap, int[] seq) {

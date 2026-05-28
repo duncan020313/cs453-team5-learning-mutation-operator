@@ -7,6 +7,7 @@ import astramut.learn.LearnedModelArchiveExtractor;
 import astramut.learn.LearnedPatternEntry;
 import astramut.learn.LearnedPatternJsonLoader;
 import astramut.mutation.LearnedMutationOperator;
+import astramut.mutation.MagicValueSampler;
 import astramut.mutation.MutationOperator;
 import java.io.BufferedWriter;
 import java.io.IOException;
@@ -85,12 +86,23 @@ final class LearnedScoreExperiment {
             options.minSpecificity(),
             options.minCohortRatio());
 
+    // RHS NumberLiteral(__MAGIC__) → corpus-weighted sample at apply time.
+    MagicValueSampler magicSampler;
+    try {
+      magicSampler = MagicValueSampler.loadFromCatalogue(modelJson, 42L);
+      System.out.println("[info] loaded magic-value distribution: "
+          + magicSampler.size() + " values, total mass=" + magicSampler.total());
+    } catch (IOException e) {
+      System.err.println("[warn] could not load magic-value distribution: " + e.getMessage());
+      magicSampler = MagicValueSampler.empty();
+    }
+
     Map<LearnedOperatorSet, List<MutationOperator>> result = new LinkedHashMap<>();
     for (LearnedOperatorSet set : options.operatorSets()) {
       List<LearnedPatternEntry> entries = loader.selectTop(modelJson, selection, set.limit());
       List<MutationOperator> operators = new ArrayList<>();
       for (int i = 0; i < entries.size(); i++) {
-        operators.add(new LearnedMutationOperator(entries.get(i).pattern(), i));
+        operators.add(new LearnedMutationOperator(entries.get(i).pattern(), i, magicSampler));
       }
       result.put(set, List.copyOf(operators));
       System.out.println("[info] " + set.name() + " selected operators: " + operators.size());

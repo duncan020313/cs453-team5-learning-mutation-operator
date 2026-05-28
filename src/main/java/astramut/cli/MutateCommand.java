@@ -4,6 +4,7 @@ import astramut.learn.LearnedPattern;
 import astramut.learn.LearnedPatternEntry;
 import astramut.learn.LearnedPatternJsonLoader;
 import astramut.mutation.LearnedMutationOperator;
+import astramut.mutation.MagicValueSampler;
 import astramut.mutation.Mutant;
 import astramut.mutation.MutationOperator;
 import java.io.IOException;
@@ -45,6 +46,13 @@ public class MutateCommand {
 
             Files.createDirectories(o.outputDir);
 
+            MagicValueSampler magicSampler;
+            try {
+                magicSampler = MagicValueSampler.loadFromCatalogue(o.modelPath, 42L);
+            } catch (IOException ex) {
+                magicSampler = MagicValueSampler.empty();
+            }
+
             int operatorIndex = 0;
             int written = 0;
             Set<String> seenMutatedSources = new LinkedHashSet<>();
@@ -54,7 +62,7 @@ public class MutateCommand {
                     break;
                 }
 
-                MutationOperator operator = new LearnedMutationOperator(learnedPattern, operatorIndex++);
+                MutationOperator operator = new LearnedMutationOperator(learnedPattern, operatorIndex++, magicSampler);
 
                 List<Mutant> mutants = operator.generateMutants(
                         sourceCode,
