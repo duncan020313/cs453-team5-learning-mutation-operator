@@ -7,12 +7,15 @@ import astramut.learn.TreePattern;
 
 import com.github.javaparser.StaticJavaParser;
 import com.github.javaparser.ast.CompilationUnit;
+import com.github.javaparser.ast.Modifier;
 import com.github.javaparser.ast.Node;
 import com.github.javaparser.ast.body.BodyDeclaration;
+import com.github.javaparser.ast.expr.AssignExpr;
 import com.github.javaparser.ast.expr.Expression;
 import com.github.javaparser.ast.stmt.BlockStmt;
 import com.github.javaparser.ast.stmt.Statement;
 import com.github.javaparser.ast.expr.BinaryExpr;
+import com.github.javaparser.ast.type.PrimitiveType;
 
 import java.util.ArrayList;
 import java.util.LinkedHashSet;
@@ -25,9 +28,14 @@ import java.util.function.Predicate;
 public final class LearnedMutationOperator implements MutationOperator {
     private final LearnedPattern learnedPattern;
     private final EditPattern mutationPattern;
+    private final MagicValueSampler magicSampler;
     private final String name;
 
     public LearnedMutationOperator(LearnedPattern learnedPattern, int index) {
+        this(learnedPattern, index, MagicValueSampler.empty());
+    }
+
+    public LearnedMutationOperator(LearnedPattern learnedPattern, int index, MagicValueSampler magicSampler) {
         this.learnedPattern = learnedPattern;
 
         EditPattern fixPattern = learnedPattern.pattern();
@@ -37,6 +45,7 @@ public final class LearnedMutationOperator implements MutationOperator {
                 fixPattern.before()
         );
 
+        this.magicSampler = magicSampler != null ? magicSampler : MagicValueSampler.empty();
         this.name = "learned-" + index
                 + "-support-" + learnedPattern.support()
                 + "-score-" + String.format("%.3f", learnedPattern.score());
@@ -101,7 +110,8 @@ public final class LearnedMutationOperator implements MutationOperator {
             try {
                 instantiated = PatternInstantiator.instantiate(
                         mutationPattern.after(),
-                        matchResult.bindings()
+                        matchResult.bindings(),
+                        magicSampler
                 );
             } catch (IllegalStateException e) {
                 continue;
@@ -179,6 +189,30 @@ public final class LearnedMutationOperator implements MutationOperator {
             List<BinaryExpr> binaryExprs = compilationUnit.findAll(BinaryExpr.class);
             for (int i = 0; i < binaryExprs.size(); i++) {
                 candidates.add(new BinaryOperatorCandidate(i, globalIndex++));
+            }
+        }
+
+        // Modifier swap (private↔public↔protected etc.) — JavaParser exposes Modifier as a Node.
+        if (matchPattern instanceof TreeNode n && n.type().equals("Modifier")) {
+            List<Modifier> mods = compilationUnit.findAll(Modifier.class);
+            for (int i = 0; i < mods.size(); i++) {
+                candidates.add(new ModifierCandidate(i, globalIndex++));
+            }
+        }
+
+        // PrimitiveType swap (int↔long↔double, void↔boolean) — Node.replace works on PrimitiveType.
+        if (matchPattern instanceof TreeNode n && n.type().equals("PrimitiveType")) {
+            List<PrimitiveType> types = compilationUnit.findAll(PrimitiveType.class);
+            for (int i = 0; i < types.size(); i++) {
+                candidates.add(new PrimitiveTypeCandidate(i, globalIndex++));
+            }
+        }
+
+        // AssignmentOperator swap (= ↔ += etc.) — like BinaryOperator, operator is a field of AssignExpr.
+        if (matchPattern instanceof TreeNode n && n.type().equals("ASSIGNMENT_OPERATOR")) {
+            List<AssignExpr> assignments = compilationUnit.findAll(AssignExpr.class);
+            for (int i = 0; i < assignments.size(); i++) {
+                candidates.add(new AssignmentOperatorCandidate(i, globalIndex++));
             }
         }
 
@@ -417,6 +451,127 @@ public final class LearnedMutationOperator implements MutationOperator {
             }
 
             return OperatorToken.toBinaryOperator(n.label());
+        }
+    }
+
+    private record ModifierCandidate(int indexWithinKind, int globalIndex) implements Candidate {
+        @Override public int globalIndex() { return globalIndex; }
+
+        @Override public TreePattern toPattern(CompilationUnit cu) {
+            Modifier m = resolve(cu);
+            if (m == null) return null;
+            return new TreeNode("Modifier", m.getKeyword().asString(), List.of());
+        }
+
+        @Override public boolean canReplaceWith(CompilationUnit cu, TreePattern repl) {
+            return resolve(cu) != null && replacementKeyword(repl).isPresent();
+        }
+
+        @Override public boolean replaceIn(CompilationUnit cu, TreePattern repl) {
+            Modifier m = resolve(cu);
+            Optional<Modifier.Keyword> kw = replacementKeyword(repl);
+            if (m == null || kw.isEmpty()) return false;
+            m.setKeyword(kw.get());
+            return true;
+        }
+
+        @Override public int lineNumber(CompilationUnit cu) {
+            Modifier m = resolve(cu);
+            return m == null ? -1 : m.getRange().map(r -> r.begin.line).orElse(-1);
+        }
+
+        private Modifier resolve(CompilationUnit cu) {
+            List<Modifier> all = cu.findAll(Modifier.class);
+            return indexWithinKind < all.size() ? all.get(indexWithinKind) : null;
+        }
+
+        private static Optional<Modifier.Keyword> replacementKeyword(TreePattern p) {
+            if (!(p instanceof TreeNode n) || !n.type().equals("Modifier")) return Optional.empty();
+            for (Modifier.Keyword k : Modifier.Keyword.values()) {
+                if (k.asString().equals(n.label())) return Optional.of(k);
+            }
+            return Optional.empty();
+        }
+    }
+
+    private record PrimitiveTypeCandidate(int indexWithinKind, int globalIndex) implements Candidate {
+        @Override public int globalIndex() { return globalIndex; }
+
+        @Override public TreePattern toPattern(CompilationUnit cu) {
+            PrimitiveType t = resolve(cu);
+            if (t == null) return null;
+            return new TreeNode("PrimitiveType", t.getType().asString(), List.of());
+        }
+
+        @Override public boolean canReplaceWith(CompilationUnit cu, TreePattern repl) {
+            return resolve(cu) != null && replacementType(repl).isPresent();
+        }
+
+        @Override public boolean replaceIn(CompilationUnit cu, TreePattern repl) {
+            PrimitiveType t = resolve(cu);
+            Optional<PrimitiveType.Primitive> p = replacementType(repl);
+            if (t == null || p.isEmpty()) return false;
+            t.setType(p.get());
+            return true;
+        }
+
+        @Override public int lineNumber(CompilationUnit cu) {
+            PrimitiveType t = resolve(cu);
+            return t == null ? -1 : t.getRange().map(r -> r.begin.line).orElse(-1);
+        }
+
+        private PrimitiveType resolve(CompilationUnit cu) {
+            List<PrimitiveType> all = cu.findAll(PrimitiveType.class);
+            return indexWithinKind < all.size() ? all.get(indexWithinKind) : null;
+        }
+
+        private static Optional<PrimitiveType.Primitive> replacementType(TreePattern p) {
+            if (!(p instanceof TreeNode n) || !n.type().equals("PrimitiveType")) return Optional.empty();
+            // Pattern labels: "int", "long", "boolean", "void", "double", "float", "byte", "short", "char"
+            for (PrimitiveType.Primitive prim : PrimitiveType.Primitive.values()) {
+                if (prim.asString().equals(n.label())) return Optional.of(prim);
+            }
+            return Optional.empty();
+        }
+    }
+
+    private record AssignmentOperatorCandidate(int indexWithinKind, int globalIndex) implements Candidate {
+        @Override public int globalIndex() { return globalIndex; }
+
+        @Override public TreePattern toPattern(CompilationUnit cu) {
+            AssignExpr a = resolve(cu);
+            if (a == null) return null;
+            return new TreeNode("ASSIGNMENT_OPERATOR", a.getOperator().asString(), List.of());
+        }
+
+        @Override public boolean canReplaceWith(CompilationUnit cu, TreePattern repl) {
+            return resolve(cu) != null && replacementOp(repl).isPresent();
+        }
+
+        @Override public boolean replaceIn(CompilationUnit cu, TreePattern repl) {
+            AssignExpr a = resolve(cu);
+            Optional<AssignExpr.Operator> op = replacementOp(repl);
+            if (a == null || op.isEmpty()) return false;
+            a.setOperator(op.get());
+            return true;
+        }
+
+        @Override public int lineNumber(CompilationUnit cu) {
+            AssignExpr a = resolve(cu);
+            return a == null ? -1 : a.getRange().map(r -> r.begin.line).orElse(-1);
+        }
+
+        private AssignExpr resolve(CompilationUnit cu) {
+            List<AssignExpr> all = cu.findAll(AssignExpr.class);
+            return indexWithinKind < all.size() ? all.get(indexWithinKind) : null;
+        }
+
+        private static Optional<AssignExpr.Operator> replacementOp(TreePattern p) {
+            if (!(p instanceof TreeNode n) || !n.type().equals("ASSIGNMENT_OPERATOR")) return Optional.empty();
+            for (AssignExpr.Operator op : AssignExpr.Operator.values()) {
+                if (op.asString().equals(n.label())) return Optional.of(op);
+            }
+            return Optional.empty();
         }
     }
 

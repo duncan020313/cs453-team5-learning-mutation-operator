@@ -115,13 +115,99 @@ class PatternLearnerTest {
     }
 
     @Test
-    void singletonExamplesAreFilteredOutByMinSupport() {
+    void singletonExamplesSurviveWithoutMinSupportFilter() {
+        // §10: minSupport filter removed — singleton concrete edits now yield
+        // a usable pattern as long as F2/F3 pass.
         List<GumTreeDiff> diffs = List.of(
                 nullCheckFlip("x", "==", "!=", leafBody("ReturnStatement", 50, 60))
         );
         LearnedModel model = new PatternLearner().learn(diffs);
+        assertFalse(model.patterns().isEmpty(),
+                "singleton patterns should survive without minSupport filter");
+        LearnedPattern p = model.patterns().get(0);
+        assertEquals(1, p.support(), "support reflects the single source diff");
+    }
+
+    @Test
+    void identifierOnlySwapOnJdtNodesAbsorbedByF2() {
+        // §8: with JDT-style SimpleName under MethodInvocation, an identifier-only
+        // swap (foo() → bar()) hole-ifies on both sides → before ≡ after → F2 drops.
+        List<GumTreeDiff> diffs = List.of(
+                methodNameSwap("foo", "bar"),
+                methodNameSwap("baz", "qux"));
+        LearnedModel model = new PatternLearner().learn(diffs);
         assertTrue(model.patterns().isEmpty(),
-                "minSupport=2 should drop a single-instance pattern");
+                "identifier-only swap should be absorbed by F2 after §8 hole-ification, got "
+                        + model.patterns().size() + " patterns");
+    }
+
+    @Test
+    void typeIdentifierIsPreservedAcrossLearning() {
+        // §8: SimpleType label (Object, String, ...) must stay literal so type-change
+        // mutations like StringBuffer → StringBuilder survive.
+        List<GumTreeDiff> diffs = List.of(
+                typeAndVarSwap("StringBuffer", "StringBuilder", "sb"),
+                typeAndVarSwap("StringBuffer", "StringBuilder", "buf"));
+        LearnedModel model = new PatternLearner().learn(diffs);
+        assertFalse(model.patterns().isEmpty(),
+                "type-change pattern should survive (SimpleType literal preservation)");
+        LearnedPattern top = model.patterns().get(0);
+        TreeNode beforeType = locateType(top.pattern().before(), "StringBuffer");
+        TreeNode afterType = locateType(top.pattern().after(), "StringBuilder");
+        assertNotNull(beforeType, "StringBuffer literal must be preserved on LHS");
+        assertNotNull(afterType, "StringBuilder literal must be preserved on RHS");
+    }
+
+    /** Build a CHANGE_IDENTIFIER-shaped edit: MethodInvocation { SimpleName(srcName) } → { SimpleName(dstName) }. */
+    private static GumTreeDiff methodNameSwap(String srcName, String dstName) {
+        GumTreeNode src = GumTreeNode.leaf("SimpleName", srcName, 1, srcName.length());
+        GumTreeNode srcMi = new GumTreeNode("MethodInvocation", "", 0, srcName.length() + 2, List.of(src));
+
+        GumTreeNode dst = GumTreeNode.leaf("SimpleName", dstName, 21, dstName.length());
+        GumTreeNode dstMi = new GumTreeNode("MethodInvocation", "", 20, dstName.length() + 2, List.of(dst));
+
+        List<GumTreeMatch> matches = List.of(
+                new GumTreeMatch(srcMi.identifier(), dstMi.identifier()),
+                new GumTreeMatch(src.identifier(), dst.identifier()));
+        List<GumTreeAction> actions = List.of(
+                new GumTreeAction.UpdateNode(src.identifier(), dstName));
+        return new GumTreeDiff(srcMi, dstMi, matches, actions);
+    }
+
+    /** Build: VariableDeclarationFragment(SimpleName(var), ClassInstanceCreation(SimpleType(srcType))) → ...(dstType). */
+    private static GumTreeDiff typeAndVarSwap(String srcType, String dstType, String varName) {
+        GumTreeNode srcVar = GumTreeNode.leaf("SimpleName", varName, 1, varName.length());
+        GumTreeNode srcTypeName = GumTreeNode.leaf("SimpleName", srcType, 2, srcType.length());
+        GumTreeNode srcSimpleType = new GumTreeNode("SimpleType", "", 2, srcType.length(), List.of(srcTypeName));
+        GumTreeNode srcCic = new GumTreeNode("ClassInstanceCreation", "", 3, srcType.length() + 3, List.of(srcSimpleType));
+        GumTreeNode srcFrag = new GumTreeNode("VariableDeclarationFragment", "", 0, 20, List.of(srcVar, srcCic));
+
+        GumTreeNode dstVar = GumTreeNode.leaf("SimpleName", varName, 41, varName.length());
+        GumTreeNode dstTypeName = GumTreeNode.leaf("SimpleName", dstType, 42, dstType.length());
+        GumTreeNode dstSimpleType = new GumTreeNode("SimpleType", "", 42, dstType.length(), List.of(dstTypeName));
+        GumTreeNode dstCic = new GumTreeNode("ClassInstanceCreation", "", 43, dstType.length() + 3, List.of(dstSimpleType));
+        GumTreeNode dstFrag = new GumTreeNode("VariableDeclarationFragment", "", 40, 20, List.of(dstVar, dstCic));
+
+        List<GumTreeMatch> matches = List.of(
+                new GumTreeMatch(srcFrag.identifier(), dstFrag.identifier()),
+                new GumTreeMatch(srcVar.identifier(), dstVar.identifier()),
+                new GumTreeMatch(srcCic.identifier(), dstCic.identifier()),
+                new GumTreeMatch(srcSimpleType.identifier(), dstSimpleType.identifier()),
+                new GumTreeMatch(srcTypeName.identifier(), dstTypeName.identifier()));
+        List<GumTreeAction> actions = List.of(
+                new GumTreeAction.UpdateNode(srcTypeName.identifier(), dstType));
+        return new GumTreeDiff(srcFrag, dstFrag, matches, actions);
+    }
+
+    private static TreeNode locateType(TreePattern p, String label) {
+        if (p instanceof TreeNode n) {
+            if ("SimpleName".equals(n.type()) && label.equals(n.label())) return n;
+            for (TreePattern c : n.children()) {
+                TreeNode found = locateType(c, label);
+                if (found != null) return found;
+            }
+        }
+        return null;
     }
 
     private static boolean hasOperatorChange(LearnedPattern p, String beforeOp, String afterOp) {

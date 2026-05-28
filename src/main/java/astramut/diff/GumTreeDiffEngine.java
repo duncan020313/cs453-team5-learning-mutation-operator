@@ -26,14 +26,23 @@ public class GumTreeDiffEngine {
 
     private static final String CU_TEMPLATE =
             "class _Wrapper_ { void _m_() { %s } }";
+    /** Wraps a complete method declaration (Bugs2Fix-style input) as a class body. */
+    private static final String METHOD_CU_TEMPLATE =
+            "class _Wrapper_ { %s }";
 
     static {
         Run.initGenerators();
     }
 
     public GumTreeDiff diff(String beforeSourceCode, String afterSourceCode) throws IOException {
-        String wrappedBefore = wrap(beforeSourceCode);
-        String wrappedAfter  = wrap(afterSourceCode);
+        return diff(beforeSourceCode, afterSourceCode, false);
+    }
+
+    /** {@code methodMode=true}: input is a full method declaration (Bugs2Fix), else a statement. */
+    public GumTreeDiff diff(String beforeSourceCode, String afterSourceCode, boolean methodMode)
+            throws IOException {
+        String wrappedBefore = methodMode ? wrapMethod(beforeSourceCode) : wrap(beforeSourceCode);
+        String wrappedAfter  = methodMode ? wrapMethod(afterSourceCode)  : wrap(afterSourceCode);
 
         TreeGenerator generator = new JdtTreeGenerator();
 
@@ -49,22 +58,27 @@ public class GumTreeDiffEngine {
         EditScriptGenerator scriptGen = new SimplifiedChawatheScriptGenerator();
         List<Action> actions = scriptGen.computeActions(mappings).asList();
 
-        GumTreeNode srcTree = stripWrap(toGumTreeNode(beforeRoot));
-        GumTreeNode dstTree = stripWrap(toGumTreeNode(afterRoot));
+        GumTreeNode srcTree = stripWrap(toGumTreeNode(beforeRoot), methodMode);
+        GumTreeNode dstTree = stripWrap(toGumTreeNode(afterRoot), methodMode);
         List<GumTreeMatch> matches = toMatches(mappings);
         List<GumTreeAction> ourActions = toActions(actions);
 
         return new GumTreeDiff(srcTree, dstTree, matches, ourActions);
     }
 
-    /** Strip {@code class _Wrapper_ { void _m_() { ... } }} (and the {@code Object _v_ = (...)} fallback) so learning sees only real code. */
-    private static GumTreeNode stripWrap(GumTreeNode root) {
+    /** Strip {@code class _Wrapper_ { ... }} so learning sees only real code. Method-mode returns the user's MethodDeclaration. */
+    private static GumTreeNode stripWrap(GumTreeNode root, boolean methodMode) {
         if (!"CompilationUnit".equals(root.type()) || root.children().size() != 1) return root;
         GumTreeNode td = root.children().get(0);
         if (!"TypeDeclaration".equals(td.type())
                 || td.children().stream().noneMatch(
                         c -> "SimpleName".equals(c.type()) && "_Wrapper_".equals(c.label()))) {
             return root;
+        }
+        if (methodMode) {
+            return td.children().stream()
+                    .filter(c -> "MethodDeclaration".equals(c.type()))
+                    .findFirst().orElse(root);
         }
         GumTreeNode md = td.children().stream()
                 .filter(c -> "MethodDeclaration".equals(c.type())
@@ -148,5 +162,9 @@ public class GumTreeDiffEngine {
 
     private static String wrap(String snippet) {
         return String.format(CU_TEMPLATE, snippet);
+    }
+
+    private static String wrapMethod(String methodSrc) {
+        return String.format(METHOD_CU_TEMPLATE, methodSrc);
     }
 }

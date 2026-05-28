@@ -1,8 +1,10 @@
 package astramut.learn;
 
 import java.util.Collections;
+import java.util.HashMap;
 import java.util.HashSet;
 import java.util.IdentityHashMap;
+import java.util.Map;
 import java.util.Set;
 
 /** Before/after pattern pair. Unmod sets mark maximal unchanged subtree roots for Getafix §4.1.3 stripUnmod. */
@@ -36,6 +38,31 @@ public record EditPattern(TreePattern before,
 
     public static Set<TreePattern> identitySet() {
         return Collections.newSetFromMap(new IdentityHashMap<>());
+    }
+
+    /** Structural signature with holes renamed left-to-right; equivalent rewrites yield the same string. */
+    public String canonicalSignature() {
+        Map<String, String> rename = new HashMap<>();
+        int[] next = {0};
+        StringBuilder sb = new StringBuilder();
+        appendCanon(before, rename, next, sb);
+        sb.append("↦");
+        appendCanon(after, rename, next, sb);
+        return sb.toString();
+    }
+
+    private static void appendCanon(TreePattern t, Map<String, String> rename, int[] next, StringBuilder sb) {
+        if (t instanceof Hole h) {
+            sb.append(rename.computeIfAbsent(h.id(), k -> "?" + next[0]++));
+            return;
+        }
+        TreeNode n = (TreeNode) t;
+        sb.append(n.type()).append('(').append(n.label()).append(")[");
+        for (int i = 0; i < n.children().size(); i++) {
+            if (i > 0) sb.append(',');
+            appendCanon(n.children().get(i), rename, next, sb);
+        }
+        sb.append(']');
     }
 
     private static Set<String> collectHoleIds(TreePattern p) {

@@ -6,8 +6,20 @@ import astramut.learn.TreePattern;
 
 import java.util.HashMap;
 import java.util.Map;
+import java.util.Set;
 
 public final class PatternMatcher {
+    /** NumberLiteral wildcard label matching any non-boundary numeric. */
+    public static final String MAGIC_NUMBER_TOKEN = "__MAGIC__";
+
+    /** Boundary numeric labels (excluded from the wildcard). */
+    public static final Set<String> CANONICAL_NUMERIC_LABELS = Set.of(
+            "0", "1", "-1",
+            "0.0", "1.0", "-1.0",
+            "0f", "1f", "-1f", "0F", "1F", "-1F",
+            "0l", "1l", "-1l", "0L", "1L", "-1L",
+            "0d", "1d", "-1d", "0D", "1D", "-1D");
+
     private PatternMatcher() {
     }
 
@@ -45,7 +57,7 @@ public final class PatternMatcher {
             return false;
         }
 
-        if (!labelMatches(p.label(), t.label())) {
+        if (!labelMatches(p.type(), p.label(), t.label())) {
             return false;
         }
 
@@ -87,9 +99,14 @@ public final class PatternMatcher {
         return false;
     }
 
-    private static boolean labelMatches(String patternLabel, String targetLabel) {
+    private static boolean labelMatches(String patternType, String patternLabel, String targetLabel) {
         if (patternLabel == null || patternLabel.isBlank()) {
             return true;
+        }
+
+        // __MAGIC__ wildcard: matches any non-boundary NumberLiteral.
+        if ("NumberLiteral".equals(patternType) && MAGIC_NUMBER_TOKEN.equals(patternLabel)) {
+            return targetLabel != null && !CANONICAL_NUMERIC_LABELS.contains(targetLabel);
         }
 
         return patternLabel.equals(targetLabel);

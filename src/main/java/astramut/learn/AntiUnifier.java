@@ -6,18 +6,21 @@ import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
+import java.util.concurrent.atomic.AtomicInteger;
 
 public final class AntiUnifier {
     private AntiUnifier() {}
 
     public static EditPattern antiUnify(EditPattern p1, EditPattern p2) {
-        // Shared allocator across before/after: same (t1,t2) pair yields same hole id on both sides,
-        // which makes the pattern usable as a rewrite rule and implements §4.1.3 populate-back.
-        HoleAllocator alloc = new HoleAllocator();
-        TreePattern before = au(p1.before(), p2.before(),
-                                p1.unmodBefore(), p2.unmodBefore(), alloc);
-        TreePattern after = au(p1.after(), p2.after(),
-                               p1.unmodAfter(), p2.unmodAfter(), alloc);
+        // Rename input holes onto a shared seq so pre-existing ids never collide.
+        AtomicInteger seq = new AtomicInteger();
+        EditPattern r1 = renameHoles(p1, seq);
+        EditPattern r2 = renameHoles(p2, seq);
+        HoleAllocator alloc = new HoleAllocator(seq);
+        TreePattern before = au(r1.before(), r2.before(),
+                                r1.unmodBefore(), r2.unmodBefore(), alloc);
+        TreePattern after = au(r1.after(), r2.after(),
+                               r1.unmodAfter(), r2.unmodAfter(), alloc);
         return new EditPattern(before, after);
     }
 
@@ -48,11 +51,43 @@ public final class AntiUnifier {
         return alloc.holeFor(t1, t2);
     }
 
+    private static EditPattern renameHoles(EditPattern e, AtomicInteger seq) {
+        Map<String, String> remap = new HashMap<>();
+        Set<TreePattern> newUnmodBefore = EditPattern.identitySet();
+        Set<TreePattern> newUnmodAfter = EditPattern.identitySet();
+        TreePattern newBefore = rename(e.before(), e.unmodBefore(), newUnmodBefore, remap, seq);
+        TreePattern newAfter = rename(e.after(), e.unmodAfter(), newUnmodAfter, remap, seq);
+        return new EditPattern(newBefore, newAfter, newUnmodBefore, newUnmodAfter);
+    }
+
+    private static TreePattern rename(TreePattern p, Set<TreePattern> oldUnmod,
+                                      Set<TreePattern> newUnmod,
+                                      Map<String, String> remap, AtomicInteger seq) {
+        boolean wasUnmod = oldUnmod.contains(p);
+        TreePattern result;
+        if (p instanceof Hole h) {
+            String hid = remap.computeIfAbsent(h.id(), k -> "?h" + seq.getAndIncrement());
+            result = new Hole(hid);
+        } else {
+            TreeNode n = (TreeNode) p;
+            List<TreePattern> kids = new ArrayList<>(n.children().size());
+            for (TreePattern c : n.children()) kids.add(rename(c, oldUnmod, newUnmod, remap, seq));
+            result = new TreeNode(n.type(), n.label(), kids);
+        }
+        if (wasUnmod) newUnmod.add(result);
+        return result;
+    }
+
     public static final class HoleAllocator {
         private final Map<HoleKey, Hole> map = new HashMap<>();
+        private final AtomicInteger seq;
+
+        public HoleAllocator() { this(new AtomicInteger()); }
+        public HoleAllocator(AtomicInteger seq) { this.seq = seq; }
 
         public Hole holeFor(TreePattern left, TreePattern right) {
-            return map.computeIfAbsent(new HoleKey(left, right), k -> new Hole("?h" + map.size()));
+            return map.computeIfAbsent(new HoleKey(left, right),
+                    k -> new Hole("?h" + seq.getAndIncrement()));
         }
     }
 
